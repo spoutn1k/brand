@@ -3,7 +3,9 @@ import sys
 import pathlib
 import json
 import tempfile
-import subprocess
+import logging
+from shlex import split
+from subprocess import Popen, PIPE
 
 SUCCESS = 0
 FAILURE = 1
@@ -46,10 +48,10 @@ class Record:
                 sys.exit(1)
 
             coordinates = {
-                    "GPSLatitude": lat,
-                    "GPSLatitudeRef": 'N',
-                    "GPSLongitude": lon,
-                    "GPSLongitudeRef": 'W',
+                "GPSLatitude": lat,
+                "GPSLatitudeRef": 'N',
+                "GPSLongitude": lon,
+                "GPSLongitudeRef": 'W',
             }
 
         return coordinates | {
@@ -88,7 +90,7 @@ def main():
 
     _, _, filenames = next(os.walk(negatives_dir), (None, None, []))
 
-    MAX=40
+    MAX = 40
     present = {}
 
     for i in range(MAX):
@@ -122,16 +124,16 @@ def main():
         for filename in present.get(i):
             todo.append((filename, datafile.name))
 
-    print("Tagging %d files" % len(todo))
+    logging.info("Tagging %d files" % len(todo))
     processes = []
     for filename, data in todo:
-        processes.append(
-            subprocess.Popen([
-                'exiftool', '-m', '-q',
-                "-j=%s" % data,
-                "%s/%s/%s" % (os.getcwd(), negatives_dir, filename)
-            ]))
-    [p.wait() for p in processes]
+        command = f"exiftool -m -q -j={data} {os.getcwd()}/{negatives_dir}/{filename}"
+        processes.append(Popen(split(command), stdout=PIPE, stderr=PIPE))
+
+    for proc in procrocesses:
+        if status := proc.wait():
+            logging.critical("Process %d failed with status %d: %s", proc.pid,
+                             proc.returncode, proc.stderr)
 
     for _, datafile in todo:
         if pathlib.Path(datafile).exists():
@@ -139,7 +141,10 @@ def main():
 
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO)
+
     if len(sys.argv) < 3:
         print("Usage: %s <negatives> <tse file>" % sys.argv[0])
         sys.exit(FAILURE)
+
     main()

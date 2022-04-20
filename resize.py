@@ -37,4 +37,5 @@ if __name__ == '__main__':
         status = proc.wait()
 
         if status:
-            logging.critical(f"Process {proc.pid} failed: {p.stderr}")
+            logging.critical(f"Process %d failed with error code %d: %s",
+                             proc.pid, proc.returncode, proc.stderr)

@@ -1,11 +1,11 @@
 import os
-import sys
-import pathlib
 import json
-import tempfile
 import logging
+from tempfile import NamedTemporaryFile
+from pathlib import Path
 from shlex import split
 from subprocess import Popen, PIPE
+from itertools import chain
 
 SUCCESS = 0
 FAILURE = 1
@@ -30,12 +30,18 @@ class Record:
     empty = 'N/A'
     fields = ['fnumber', 'sspeed', 'flength', 'comment', 'date', 'coordinates']
 
-    def __init__(self, line: str):
+    def __init__(self):
         for field in Record.fields:
             setattr(self, field, Record.empty)
 
+    @classmethod
+    def create_from(cls, line: str):
+        record = cls()
+
         for (k, v) in zip(Record.fields, line.split('\t')):
-            setattr(self, k, v)
+            setattr(record, k, v)
+
+        return record
 
     def export(self):
         coordinates = {}
@@ -43,16 +49,15 @@ class Record:
         if self.coordinates and self.coordinates != Record.empty:
             try:
                 lat, lon = self.coordinates.split(',')
+                coordinates = {
+                    "GPSLatitude": lat,
+                    "GPSLatitudeRef": 'N',
+                    "GPSLongitude": lon,
+                    "GPSLongitudeRef": 'W',
+                }
             except:
-                print("Badly formatted coordinates: %s" % self.coordinates)
-                sys.exit(1)
-
-            coordinates = {
-                "GPSLatitude": lat,
-                "GPSLatitudeRef": 'N',
-                "GPSLongitude": lon,
-                "GPSLongitudeRef": 'W',
-            }
+                logging.error("Badly formatted coordinates: %s",
+                              self.coordinates)
 
         return coordinates | {
             "shutterspeed": self.sspeed,
@@ -65,86 +70,75 @@ class Record:
 
 
 def get_index(filename):
-    return int(pathlib.Path(filename).stem[0:4].strip('_').strip('A'))
+    index = int(Path(filename).stem[0:4].strip('_').strip('A'))
+    logging.info("File '%s' has index '%d'", filename, index)
+    return index
 
 
-def read_tse(filename):
-    with open(filename, 'r') as tse:
-        lines = [l.strip('\n') for l in tse.readlines()]
-
-    metadata = list(filter(lambda l: l[0] == '#', lines))
-    lines = list(filter(lambda l: l[0] not in ['#', ';'], lines))
+def read_tse(filename: Path):
+    with open(filename, 'r', encoding='utf-8') as tse:
+        lines = list(map(lambda l: l.strip('\n'), tse.readlines()))
 
     template = {}
-    for field in metadata:
+    for field in filter(lambda l: l[0] == '#', lines):
         els = field.split()
         template[els[0].strip('#')] = ' '.join(els[1:])
 
-    return template, lines
+    records = {}
+    entries = filter(lambda l: l[0] not in ['#', ';'], lines)
+    for index, value in enumerate(entries, start=1):
+        records[index] = Record.create_from(value)
+
+    return template, records
 
 
-def main():
-    negatives_dir = pathlib.Path(sys.argv[1])
-    if not (negatives_dir.exists() and negatives_dir.is_dir()):
-        return FAILURE
+def main(negatives_dir: Path, tse_file: Path):
+    filenames = list(negatives_dir.glob('*tiff')) + list(
+        negatives_dir.glob('*jpg'))
 
-    _, _, filenames = next(os.walk(negatives_dir), (None, None, []))
-
-    MAX = 40
-    present = {}
-
-    for i in range(MAX):
-        present[i] = set()
-
-    for filename in filter(
-            lambda p: pathlib.Path(p).suffix.lower() in ['.jpg', '.tiff'],
-            filenames):
-        try:
-            index = get_index(filename)
-        except ValueError:
-            continue
-        present[index].add(filename)
-
-    template, exposures = read_tse(sys.argv[2])
+    template, records = read_tse(tse_file)
 
     todo = []
 
-    for i in range(1, 41):
-        if not present.get(i) or len(exposures) < i:
+    for filename in filenames:
+        index = get_index(filename)
+
+        if index not in records:
+            logging.error("Missing exposure record for file '%s'", filename)
             continue
 
         data = template.copy()
 
-        data.update(Record(exposures[i - 1]).export())
+        data.update(records[index].export())
 
-        datafile = tempfile.NamedTemporaryFile('w+', delete=False)
-        datafile.write(json.dumps(data, indent=1))
-        datafile.close()
-
-        for filename in present.get(i):
+        with NamedTemporaryFile('w+', delete=False) as datafile:
+            json.dump(data, datafile)
             todo.append((filename, datafile.name))
 
     logging.info("Tagging %d files" % len(todo))
     processes = []
+
     for filename, data in todo:
-        command = f"exiftool -m -q -j={data} {os.getcwd()}/{negatives_dir}/{filename}"
+        command = f"exiftool -m -q -j={data} {filename.resolve()}"
         processes.append(Popen(split(command), stdout=PIPE, stderr=PIPE))
 
-    for proc in procrocesses:
+    for proc in processes:
         if status := proc.wait():
             logging.critical("Process %d failed with status %d: %s", proc.pid,
                              proc.returncode, proc.stderr)
 
     for _, datafile in todo:
-        if pathlib.Path(datafile).exists():
+        if Path(datafile).exists():
             os.unlink(datafile)
 
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
 
+    import sys
+
     if len(sys.argv) < 3:
         print("Usage: %s <negatives> <tse file>" % sys.argv[0])
         sys.exit(FAILURE)
 
-    main()
+    main(Path(sys.argv[1]), Path(sys.argv[2]))

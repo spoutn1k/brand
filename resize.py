@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 def compress_clean(imagefile: Path, processes: list[Popen]):
-    magick_tool = which('convert')
+    magick_tool = which('magick')
 
     convert_tiff = f"""{magick_tool} {imagefile.resolve()}[0] -compress lzw "{imagefile.with_suffix('.tiff')}" """
 
@@ -20,7 +20,7 @@ def compress_clean(imagefile: Path, processes: list[Popen]):
 
 
 def create_thumb(imagefile: Path, processes: list[Popen]):
-    magick_tool = which('convert')
+    magick_tool = which('magick')
     image = Image.open(imagefile)
     width, height = image.size
 

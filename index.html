@@ -2,13 +2,81 @@
 
 <head>
     <link data-trunk rel="rust" data-bin=brand />
+    <link data-trunk rel="scss" href="./index.scss" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
 </head>
 
 <body>
     <input id=photoselect type=file multiple />
 
-    <table id=editor>
-    </table>
+    <div id=editor class=hidden>
+        <div id=general>
+            <div>
+                <input id=author-input />
+                <input id=make-input />
+                <input id=model-input />
+                <input id=iso-input />
+                <input id=description-input />
+            </div>
+            <div>
+                <input type=button value=Reset id=editor-reset />
+                <input type=button value=Download id=download />
+            </div>
+        </div>
+
+        <table id=exposures>
+        </table>
+    </div>
+
+    <div id="map" class=hidden></div>
+
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script>
+        var map;
+        var marker;
+
+        document.addEventListener('DOMContentLoaded', (event) => {
+            map = L.map('map').setView([48.8566, 2.3522], 4);
+
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            }).addTo(map);
+        });
+
+        function prompt_coords(index) {
+            document.getElementById("map").classList.toggle("hidden");
+
+            setTimeout(function() {
+                map.invalidateSize()
+            }, 200);
+
+            function update_exposure(e) {
+                const {
+                    lat,
+                    lng
+                } = e.latlng;
+
+                window.wasmBindings.update_coords(index, lat.toFixed(8), lng.toFixed(8));
+                if (marker) {
+                    map.removeLayer(marker);
+                }
+
+                document.getElementById("map").classList.toggle("hidden");
+
+                map.off('click', update_exposure);
+            }
+
+            map.on('click', update_exposure);
+        }
+
+        function set_marker(lat, lng) {
+            if (marker) {
+                map.removeLayer(marker);
+            }
+
+            marker = L.marker([lat, lng]).addTo(map);
+        }
+    </script>
 </body>
 
 </html>

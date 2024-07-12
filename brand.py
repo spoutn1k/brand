@@ -49,11 +49,16 @@ class Record:
         if self.coordinates and self.coordinates != Record.empty:
             try:
                 lat, lon = self.coordinates.split(',')
+                la_ref, lo_ref = 'N', 'E'
+                if lat.startswith('-'):
+                    la_ref = 'S'
+                if lon.startswith('-'):
+                    lo_ref = 'W'
                 coordinates = {
                     "GPSLatitude": lat,
-                    "GPSLatitudeRef": 'N',
+                    "GPSLatitudeRef": la_ref,
                     "GPSLongitude": lon,
-                    "GPSLongitudeRef": 'W',
+                    "GPSLongitudeRef": lo_ref,
                 }
             except:
                 logging.error("Badly formatted coordinates: %s",

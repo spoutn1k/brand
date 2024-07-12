@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use wasm_bindgen::prelude::*;
 
+mod tse_serializer;
+
 type JsResult<T = ()> = Result<T, JsValue>;
 
 mod my_date_format {
@@ -75,6 +77,26 @@ impl RollData {
             _ => todo!(),
         }
     }
+
+    fn as_tsv(&self) -> String {
+        format!(
+            "#Description {}
+#ImageDescription {}
+#Artist {}
+#Author {}
+#ISO {}
+#Make {}
+#Model {}
+; vim: set list number noexpandtab:",
+            self.description.clone().unwrap_or(String::new()),
+            self.description.clone().unwrap_or(String::new()),
+            self.author.clone().unwrap_or(String::new()),
+            self.author.clone().unwrap_or(String::new()),
+            self.iso.clone().unwrap_or(String::new()),
+            self.make.clone().unwrap_or(String::new()),
+            self.model.clone().unwrap_or(String::new()),
+        )
+    }
 }
 
 impl ExposureSpecificData {
@@ -84,8 +106,53 @@ impl ExposureSpecificData {
             "aperture" => self.aperture = Some(value),
             "lens" => self.lens = Some(value),
             "comment" => self.comment = Some(value),
+            "date" => {
+                self.date = NaiveDateTime::parse_from_str(&value, "%Y-%m-%dT%H:%M:%S")
+                    .or(NaiveDateTime::parse_from_str(&value, "%Y-%m-%dT%H:%M"))
+                    .ok()
+            }
             _ => todo!(),
         }
+    }
+
+    fn as_tsv(&self) -> String {
+        let mut fields = vec![
+            self.sspeed.clone().unwrap_or(String::new()),
+            self.aperture.clone().unwrap_or(String::new()),
+            self.lens.clone().unwrap_or(String::new()),
+            self.comment.clone().unwrap_or(String::new()),
+        ];
+
+        fields.push(
+            self.date
+                .map(|d| format!("{}", d.format("%Y %m %d %H %M %S")))
+                .unwrap_or(String::new()),
+        );
+
+        match self.gps {
+            None => fields.push(String::new()),
+            Some((lat, lon)) => fields.push(format!("{lat}, {lon}")),
+        }
+
+        fields.join("\t")
+    }
+}
+
+impl Data {
+    fn to_string(&self) -> String {
+        let mut lines: Vec<String> = vec![];
+        let max: u32 = *self.exposures.keys().max().unwrap_or(&0u32) + 1;
+
+        for index in 1..max {
+            match self.exposures.get(&index) {
+                Some(exp) => lines.push(exp.as_tsv()),
+                None => lines.push(String::new()),
+            }
+        }
+
+        lines.push(self.roll.as_tsv());
+
+        lines.join("\n")
     }
 }
 
@@ -337,6 +404,19 @@ fn map_input(index: u32) -> JsResult {
     Ok(())
 }
 
+fn gen_tse() -> JsResult {
+    let storage = web_sys::window()
+        .ok_or("No window")?
+        .session_storage()?
+        .ok_or("No session storage !")?;
+
+    let data: Data = serde_json::from_str(&storage.get_item("data")?.ok_or("No data")?)
+        .map_err(|e| e.to_string())?;
+
+    download_file("index.tse".into(), data.to_string());
+    Ok(())
+}
+
 fn setup_general_fields() -> JsResult {
     let window = web_sys::window().ok_or("no global `window` exists")?;
     let document = window.document().ok_or("no document on window")?;
@@ -354,10 +434,29 @@ fn setup_general_fields() -> JsResult {
     let model_input = document
         .get_element_by_id("model-input")
         .ok_or("No model_input !")?;
+    let iso_input = document
+        .get_element_by_id("iso-input")
+        .ok_or("No iso_input !")?;
+    let description_input = document
+        .get_element_by_id("description-input")
+        .ok_or("No description_input !")?;
+
+    let download = document
+        .get_element_by_id("download")
+        .ok_or("No download !")?;
 
     set_general_handler("author".into(), &author_input, storage.clone())?;
     set_general_handler("make".into(), &make_input, storage.clone())?;
     set_general_handler("model".into(), &model_input, storage.clone())?;
+    set_general_handler("iso".into(), &iso_input, storage.clone())?;
+    set_general_handler("description".into(), &description_input, storage.clone())?;
+
+    let download_tse = Closure::<dyn Fn(_)>::new(move |_: web_sys::Event| {
+        gen_tse().unwrap();
+    });
+
+    download.add_event_listener_with_callback("click", download_tse.as_ref().unchecked_ref())?;
+    download_tse.forget();
 
     Ok(())
 }
@@ -392,6 +491,7 @@ fn create_row(index: u32, photo: web_sys::FileSystemFileEntry) -> JsResult {
     let comment_input = el!(document, "input");
     let date_input = el!(document, "input");
     date_input.set_attribute("type", "datetime-local")?;
+    date_input.set_attribute("step", "1")?;
     let gps_input = el!(document, "input");
     gps_input.set_id(&format!("gps-input-{index}"));
     let gps_select = el!(document, "input").dyn_into::<web_sys::HtmlInputElement>()?;
@@ -402,6 +502,7 @@ fn create_row(index: u32, photo: web_sys::FileSystemFileEntry) -> JsResult {
     set_exposure_handler(index, "aperture".into(), &aperture_input, storage.clone())?;
     set_exposure_handler(index, "lens".into(), &lens_input, storage.clone())?;
     set_exposure_handler(index, "comment".into(), &comment_input, storage.clone())?;
+    set_exposure_handler(index, "date".into(), &date_input, storage.clone())?;
     set_exposure_handler(index, "gps".into(), &gps_input, storage.clone())?;
 
     let coords_select = Closure::<dyn Fn(_)>::new(move |_: web_sys::Event| {
@@ -512,6 +613,7 @@ fn wrapper_webkit() -> JsResult {
 extern "C" {
     fn set_marker(x: f64, y: f64);
     fn prompt_coords(i: u32);
+    fn download_file(filename: String, contents: String);
 }
 
 fn main() {

@@ -4,6 +4,7 @@
     <link data-trunk rel="rust" data-bin=brand />
     <link data-trunk rel="scss" href="./index.scss" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 </head>
 
 <body>
@@ -30,7 +31,6 @@
 
     <div id="map" class=hidden></div>
 
-    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
     <script>
         var map;
         var marker;
@@ -75,6 +75,19 @@
             }
 
             marker = L.marker([lat, lng]).addTo(map);
+        }
+
+        function download_file(filename, text) {
+            var element = document.createElement('a');
+            element.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(text));
+            element.setAttribute('download', filename);
+
+            element.style.display = 'none';
+            document.body.appendChild(element);
+
+            element.click();
+
+            document.body.removeChild(element);
         }
     </script>
 </body>

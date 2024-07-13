@@ -30,3 +30,8 @@ features = ["CssStyleDeclaration", "Document", "DomRect", "DomTokenList", "Eleme
 name = "exif-writer"
 test = false
 bench = false
+
+[[bin]]
+name = "resize"
+test = false
+bench = false

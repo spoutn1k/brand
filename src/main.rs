@@ -5,8 +5,6 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use wasm_bindgen::prelude::*;
 
-mod tse_serializer;
-
 type JsResult<T = ()> = Result<T, JsValue>;
 
 mod my_date_format {
@@ -106,6 +104,22 @@ impl ExposureSpecificData {
             "aperture" => self.aperture = Some(value),
             "lens" => self.lens = Some(value),
             "comment" => self.comment = Some(value),
+            "gps" => {
+                self.gps = {
+                    let split = value.split(",").collect::<Vec<_>>();
+                    if split.len() == 2 {
+                        match (
+                            str::parse::<f64>(split[0]).ok(),
+                            str::parse::<f64>(split[1]).ok(),
+                        ) {
+                            (Some(lat), Some(lon)) => Some((lat, lon)),
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    }
+                }
+            }
             "date" => {
                 self.date = NaiveDateTime::parse_from_str(&value, "%Y-%m-%dT%H:%M:%S")
                     .or(NaiveDateTime::parse_from_str(&value, "%Y-%m-%dT%H:%M"))
@@ -428,18 +442,23 @@ fn setup_general_fields() -> JsResult {
     let author_input = document
         .get_element_by_id("author-input")
         .ok_or("No author_input !")?;
+    author_input.set_attribute("placeholder", "Author")?;
     let make_input = document
         .get_element_by_id("make-input")
         .ok_or("No make_input !")?;
+    make_input.set_attribute("placeholder", "Camera Make")?;
     let model_input = document
         .get_element_by_id("model-input")
         .ok_or("No model_input !")?;
+    model_input.set_attribute("placeholder", "Camera Model")?;
     let iso_input = document
         .get_element_by_id("iso-input")
         .ok_or("No iso_input !")?;
+    iso_input.set_attribute("placeholder", "ISO")?;
     let description_input = document
         .get_element_by_id("description-input")
         .ok_or("No description_input !")?;
+    description_input.set_attribute("placeholder", "Film type")?;
 
     let download = document
         .get_element_by_id("download")
@@ -461,6 +480,105 @@ fn setup_general_fields() -> JsResult {
     Ok(())
 }
 
+fn update_row_html(index: u32, data: &ExposureSpecificData) -> JsResult {
+    let row = web_sys::window()
+        .ok_or("no global `window` exists")?
+        .document()
+        .ok_or("no document on window")?
+        .query_selector(&format!("#exposure-{index}"))?
+        .ok_or("No row ?")?;
+
+    let inputs = row.children();
+    inputs
+        .item(2)
+        .ok_or("No input !")?
+        .get_elements_by_tag_name("input")
+        .item(0)
+        .ok_or("Failed")?
+        .dyn_into::<web_sys::HtmlInputElement>()?
+        .set_value(&data.sspeed.clone().unwrap_or(String::new()));
+    inputs
+        .item(3)
+        .ok_or("No input !")?
+        .get_elements_by_tag_name("input")
+        .item(0)
+        .ok_or("Failed")?
+        .dyn_into::<web_sys::HtmlInputElement>()?
+        .set_value(&data.aperture.clone().unwrap_or(String::new()));
+    inputs
+        .item(4)
+        .ok_or("No input !")?
+        .get_elements_by_tag_name("input")
+        .item(0)
+        .ok_or("Failed")?
+        .dyn_into::<web_sys::HtmlInputElement>()?
+        .set_value(&data.lens.clone().unwrap_or(String::new()));
+    inputs
+        .item(5)
+        .ok_or("No input !")?
+        .get_elements_by_tag_name("input")
+        .item(0)
+        .ok_or("Failed")?
+        .dyn_into::<web_sys::HtmlInputElement>()?
+        .set_value(&data.comment.clone().unwrap_or(String::new()));
+    inputs
+        .item(6)
+        .ok_or("No input !")?
+        .get_elements_by_tag_name("input")
+        .item(0)
+        .ok_or("Failed")?
+        .dyn_into::<web_sys::HtmlInputElement>()?
+        .set_value(
+            &data
+                .date
+                .and_then(|d| Some(format!("{}", d.format("%Y-%m-%dT%H:%M:%S"))))
+                .unwrap_or(String::new()),
+        );
+    inputs
+        .item(7)
+        .ok_or("No input !")?
+        .get_elements_by_tag_name("input")
+        .item(0)
+        .ok_or("Failed")?
+        .dyn_into::<web_sys::HtmlInputElement>()?
+        .set_value(
+            &data
+                .gps
+                .and_then(|(la, lo)| Some(format!("{la}, {lo}")))
+                .unwrap_or(String::new()),
+        );
+
+    Ok(())
+}
+
+fn clone_row(index: u32, storage: web_sys::Storage) -> JsResult {
+    let mut data: Data = serde_json::from_str(&storage.get_item("data")?.ok_or("No data")?)
+        .map_err(|e| e.to_string())?;
+
+    let mut exposures: Vec<(u32, ExposureSpecificData)> = data.exposures.into_iter().collect();
+    exposures.sort_by_key(|e| e.0);
+
+    let current = exposures.iter_mut().position(|k| k.0 == index);
+
+    if let Some(position) = current {
+        if position + 1 < exposures.len() {
+            let (_, data) = exposures[position].clone();
+            let (target, _) = exposures[position + 1].clone();
+            exposures[position + 1] = (target, data.clone());
+            update_row_html(target, &data)?;
+        }
+    }
+
+    data.exposures = exposures.into_iter().collect();
+
+    storage.set_item(
+        "data",
+        &serde_json::to_string(&data).map_err(|e| e.to_string())?,
+    )?;
+
+    Ok(())
+}
+
 fn create_row(index: u32, photo: web_sys::FileSystemFileEntry) -> JsResult {
     let window = web_sys::window().ok_or("no global `window` exists")?;
     let document = window.document().ok_or("no document on window")?;
@@ -474,6 +592,7 @@ fn create_row(index: u32, photo: web_sys::FileSystemFileEntry) -> JsResult {
         .ok_or("No storage for session !")?;
 
     let row = el!(document, "tr");
+    row.set_id(&format!("exposure-{index}"));
     let id = el!(document, "td");
     let icon = el!(document, "td");
     let image = el!(document, "img");
@@ -484,19 +603,28 @@ fn create_row(index: u32, photo: web_sys::FileSystemFileEntry) -> JsResult {
     let comment = el!(document, "td");
     let date = el!(document, "td");
     let gps = el!(document, "td");
+    let options = el!(document, "td");
 
     let sspeed_input = el!(document, "input");
+    sspeed_input.set_attribute("placeholder", "Shutter Speed")?;
     let aperture_input = el!(document, "input");
+    aperture_input.set_attribute("placeholder", "Aperture")?;
     let lens_input = el!(document, "input");
+    lens_input.set_attribute("placeholder", "Focal length")?;
     let comment_input = el!(document, "input");
+    comment_input.set_attribute("placeholder", "Title")?;
     let date_input = el!(document, "input");
     date_input.set_attribute("type", "datetime-local")?;
     date_input.set_attribute("step", "1")?;
     let gps_input = el!(document, "input");
     gps_input.set_id(&format!("gps-input-{index}"));
+    gps_input.set_attribute("placeholder", "GPS coordinates")?;
     let gps_select = el!(document, "input").dyn_into::<web_sys::HtmlInputElement>()?;
     gps_select.set_attribute("type", "button")?;
     gps_select.set_value("Map");
+    let clone_down = el!(document, "input").dyn_into::<web_sys::HtmlInputElement>()?;
+    clone_down.set_attribute("type", "button")?;
+    clone_down.set_value("Clone below");
 
     set_exposure_handler(index, "sspeed".into(), &sspeed_input, storage.clone())?;
     set_exposure_handler(index, "aperture".into(), &aperture_input, storage.clone())?;
@@ -513,12 +641,22 @@ fn create_row(index: u32, photo: web_sys::FileSystemFileEntry) -> JsResult {
     gps_select.add_event_listener_with_callback("click", coords_select.as_ref().unchecked_ref())?;
     coords_select.forget();
 
+    let clone_down_action = Closure::<dyn Fn(_)>::new(move |_: web_sys::Event| {
+        if let Err(e) = clone_row(index, storage.clone()) {
+            log::error!("{e:?}");
+        }
+    });
+    clone_down
+        .add_event_listener_with_callback("click", clone_down_action.as_ref().unchecked_ref())?;
+    clone_down_action.forget();
+
     sspeed.append_with_node_1(&sspeed_input)?;
     aperture.append_with_node_1(&aperture_input)?;
     lens.append_with_node_1(&lens_input)?;
     comment.append_with_node_1(&comment_input)?;
     date.append_with_node_1(&date_input)?;
     gps.append_with_node_2(&gps_input, &gps_select)?;
+    options.append_with_node_1(&clone_down)?;
 
     let img_id = hash(photo.name());
     image.set_id(&img_id);
@@ -534,7 +672,7 @@ fn create_row(index: u32, photo: web_sys::FileSystemFileEntry) -> JsResult {
     icon.append_with_node_1(&image)?;
 
     row.append_with_node_7(&id, &icon, &sspeed, &aperture, &lens, &comment, &date)?;
-    row.append_with_node_1(&gps)?;
+    row.append_with_node_2(&gps, &options)?;
     table.append_with_node_1(&row)
 }
 

@@ -1,7 +1,10 @@
 #map {
     display: block;
-    height: 500px;
-    width: 100%;
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    right: 0;
+    left: 0;
 
     &.hidden {
         display: none;
@@ -10,4 +13,15 @@
 
 .hidden {
     display: none;
+}
+
+#general {
+    display: flex;
+    flex-flow: row;
+    justify-content: space-between;
+}
+
+#photoselect {
+    width: 100%;
+    height: 100%;
 }

@@ -109,13 +109,21 @@ impl ExposureSpecificData {
                     let split = value.split(",").collect::<Vec<_>>();
                     if split.len() == 2 {
                         match (
-                            str::parse::<f64>(split[0]).ok(),
-                            str::parse::<f64>(split[1]).ok(),
+                            split[0].trim().parse::<f64>(),
+                            split[1].trim().parse::<f64>(),
                         ) {
-                            (Some(lat), Some(lon)) => Some((lat, lon)),
-                            _ => None,
+                            (Ok(lat), Ok(lon)) => Some((lat, lon)),
+                            (Err(e), _) => {
+                                log::error!("lat error: {e}");
+                                None
+                            }
+                            (_, Err(e)) => {
+                                log::error!("lon error: {e}");
+                                None
+                            }
                         }
                     } else {
+                        log::error!("Invalid gps coordinates format !");
                         None
                     }
                 }
@@ -170,16 +178,18 @@ impl Data {
     }
 }
 
-fn format_image(photo_data: &[u8]) -> Result<String, Box<dyn std::error::Error>> {
+fn format_image(photo_data: &[u8]) -> JsResult<String> {
     let photo = ImageReader::new(std::io::Cursor::new(photo_data))
-        .with_guessed_format()?
-        .decode()?;
+        .with_guessed_format()
+        .map_err(|e| e.to_string())?
+        .decode()
+        .map_err(|e| e.to_string())?;
 
     let photo = photo.resize(256, 256, image::imageops::FilterType::Nearest);
 
     let mut jpg = vec![];
     let mut encoder = image::codecs::jpeg::JpegEncoder::new(&mut jpg);
-    encoder.encode_image(&photo)?;
+    encoder.encode_image(&photo).map_err(|e| e.to_string())?;
 
     log::debug!("Size: {} -> {}", photo_data.len(), jpg.len());
 
@@ -201,7 +211,7 @@ fn embed_file(photo_data: &[u8], target: String) -> JsResult {
             "src",
             &format!("data:image/{};base64, {}", "jpeg", formatted),
         )?,
-        Err(e) => log::info!("Error: {e}"),
+        Err(e) => log::info!("Error: {e:?}"),
     }
 
     Ok(())
@@ -248,7 +258,7 @@ fn setup_editor(files: &Vec<web_sys::FileSystemFileEntry>) -> JsResult {
     let window = web_sys::window().ok_or("No window")?;
 
     let mut index = std::collections::HashMap::<u32, Vec<web_sys::FileSystemFileEntry>>::new();
-    let re = regex::Regex::new(r"([0-9]+)").unwrap();
+    let re = regex::Regex::new(r"([0-9]+)").map_err(|e| e.to_string())?;
     let _ = files
         .into_iter()
         .map(|f| (String::from(f.name()), f.to_owned()))
@@ -332,28 +342,70 @@ fn hash(input: String) -> String {
     )
 }
 
+fn roll_field_update_handler(
+    event: web_sys::InputEvent,
+    field: String,
+    storage: web_sys::Storage,
+) -> JsResult {
+    let content = event
+        .target()
+        .ok_or("No target for event !")?
+        .dyn_into::<web_sys::HtmlInputElement>()?
+        .value();
+    log::info!("Updating {field} with `{content:?}`");
+
+    let mut data: Data = serde_json::from_str(&storage.get_item("data")?.ok_or("No data !")?)
+        .map_err(|e| format!("{e}"))?;
+
+    data.roll.update_field(&field, content);
+
+    storage.set_item(
+        "data",
+        &serde_json::to_string(&data).map_err(|e| format!("{e}"))?,
+    )
+}
+
+fn exposure_field_update_handler(
+    event: web_sys::InputEvent,
+    exposure: u32,
+    field: String,
+    storage: web_sys::Storage,
+) -> JsResult {
+    let content = event
+        .target()
+        .ok_or("No target for event !")?
+        .dyn_into::<web_sys::HtmlInputElement>()?
+        .value();
+    log::info!("Updating {field} with `{content:?}`");
+
+    let mut data: Data = serde_json::from_str(&storage.get_item("data")?.ok_or("No data !")?)
+        .map_err(|e| format!("{e}"))?;
+
+    match data.exposures.get_mut(&exposure) {
+        Some(v) => {
+            v.update_field(&field, content);
+
+            storage.set_item(
+                "data",
+                &serde_json::to_string(&data).map_err(|e| format!("{e}"))?,
+            )?
+        }
+
+        None => log::error!("Failed to access exposure {exposure} !"),
+    };
+
+    Ok(())
+}
+
 fn set_general_handler(
     field: String,
     input: &web_sys::Element,
     storage: web_sys::Storage,
 ) -> JsResult {
     let handler = Closure::<dyn Fn(_)>::new(move |i: web_sys::InputEvent| {
-        let content = i
-            .target()
-            .unwrap()
-            .dyn_into::<web_sys::HtmlInputElement>()
-            .unwrap()
-            .value();
-        log::info!("Updating {field} with {content:?}");
-
-        let mut data: Data =
-            serde_json::from_str(&storage.get_item("data").unwrap().unwrap()).unwrap();
-
-        data.roll.update_field(&field, content);
-
-        storage
-            .set_item("data", &serde_json::to_string(&data).unwrap())
-            .unwrap();
+        if let Err(e) = roll_field_update_handler(i, field.clone(), storage.clone()) {
+            log::error!("{e:?}");
+        }
     });
 
     input.add_event_listener_with_callback("input", handler.as_ref().unchecked_ref())?;
@@ -369,25 +421,9 @@ fn set_exposure_handler(
     storage: web_sys::Storage,
 ) -> JsResult {
     let handler = Closure::<dyn Fn(_)>::new(move |i: web_sys::InputEvent| {
-        let content = i
-            .target()
-            .unwrap()
-            .dyn_into::<web_sys::HtmlInputElement>()
-            .unwrap()
-            .value();
-        log::info!("Updating {field} of exposure {index} with {content:?}");
-
-        let mut data: Data =
-            serde_json::from_str(&storage.get_item("data").unwrap().unwrap()).unwrap();
-
-        data.exposures
-            .get_mut(&index)
-            .unwrap()
-            .update_field(&field, content);
-
-        storage
-            .set_item("data", &serde_json::to_string(&data).unwrap())
-            .unwrap();
+        if let Err(e) = exposure_field_update_handler(i, index, field.clone(), storage.clone()) {
+            log::error!("{e:?}");
+        }
     });
 
     input.add_event_listener_with_callback("input", handler.as_ref().unchecked_ref())?;
@@ -431,6 +467,36 @@ fn gen_tse() -> JsResult {
     Ok(())
 }
 
+fn reset_editor() -> JsResult {
+    let window = web_sys::window().ok_or("no global `window` exists")?;
+    let document = window.document().ok_or("no document on window")?;
+
+    document
+        .get_element_by_id("exposures")
+        .ok_or("No exposures !")?
+        .set_inner_html("");
+
+    let selector = document
+        .get_element_by_id("photoselect")
+        .ok_or("No selector !")?;
+    selector.class_list().remove_1("hidden")?;
+    selector
+        .dyn_into::<web_sys::HtmlInputElement>()?
+        .set_value("");
+
+    document
+        .get_element_by_id("editor")
+        .ok_or("No editor !")?
+        .class_list()
+        .add_1("hidden")?;
+
+    let storage = window
+        .session_storage()?
+        .ok_or("No storage for session !")?;
+
+    storage.clear()
+}
+
 fn setup_general_fields() -> JsResult {
     let window = web_sys::window().ok_or("no global `window` exists")?;
     let document = window.document().ok_or("no document on window")?;
@@ -460,15 +526,27 @@ fn setup_general_fields() -> JsResult {
         .ok_or("No description_input !")?;
     description_input.set_attribute("placeholder", "Film type")?;
 
-    let download = document
-        .get_element_by_id("download")
-        .ok_or("No download !")?;
-
     set_general_handler("author".into(), &author_input, storage.clone())?;
     set_general_handler("make".into(), &make_input, storage.clone())?;
     set_general_handler("model".into(), &model_input, storage.clone())?;
     set_general_handler("iso".into(), &iso_input, storage.clone())?;
     set_general_handler("description".into(), &description_input, storage.clone())?;
+
+    let reset = document
+        .get_element_by_id("editor-reset")
+        .ok_or("No download !")?;
+
+    let reset_editor = Closure::<dyn Fn(_)>::new(move |_: web_sys::Event| {
+        if let Err(e) = reset_editor() {
+            log::error!("{e:?}");
+        }
+    });
+    reset.add_event_listener_with_callback("click", reset_editor.as_ref().unchecked_ref())?;
+    reset_editor.forget();
+
+    let download = document
+        .get_element_by_id("download")
+        .ok_or("No download !")?;
 
     let download_tse = Closure::<dyn Fn(_)>::new(move |_: web_sys::Event| {
         gen_tse().unwrap();
@@ -606,6 +684,7 @@ fn create_row(index: u32, photo: web_sys::FileSystemFileEntry) -> JsResult {
     let options = el!(document, "td");
 
     let sspeed_input = el!(document, "input");
+    sspeed_input.set_id(&format!("sspeed-input-{index}"));
     sspeed_input.set_attribute("placeholder", "Shutter Speed")?;
     let aperture_input = el!(document, "input");
     aperture_input.set_attribute("placeholder", "Aperture")?;
@@ -720,15 +799,15 @@ fn update_coords_error(index: u32, lat: f64, lon: f64) -> JsResult {
 }
 
 fn wrapper_webkit() -> JsResult {
-    let document = web_sys::window()
+    let selector = web_sys::window()
         .ok_or("no global `window` exists")?
         .document()
-        .ok_or("no document on window")?;
-
-    let selector = document
+        .ok_or("no document on window")?
         .query_selector("#photoselect")?
         .ok_or("no selector !")?
         .dyn_into::<web_sys::HtmlInputElement>()?;
+
+    disable_click(&selector)?;
 
     let target = selector.clone();
     let closure = Closure::<dyn Fn(_)>::new(move |_: web_sys::InputEvent| {
@@ -747,6 +826,15 @@ fn wrapper_webkit() -> JsResult {
     Ok(())
 }
 
+fn disable_click(selector: &web_sys::HtmlInputElement) -> JsResult {
+    let disable_click =
+        Closure::<dyn Fn(_)>::new(move |e: web_sys::InputEvent| e.prevent_default());
+    selector.add_event_listener_with_callback("click", disable_click.as_ref().unchecked_ref())?;
+    disable_click.forget();
+
+    Ok(())
+}
+
 #[wasm_bindgen]
 extern "C" {
     fn set_marker(x: f64, y: f64);
@@ -756,7 +844,6 @@ extern "C" {
 
 fn main() {
     console_error_panic_hook::set_once();
-
     wasm_logger::init(wasm_logger::Config::default());
 
     if let Err(e) = wrapper_webkit() {

@@ -8,7 +8,7 @@
 </head>
 
 <body>
-    <input id=photoselect type=file multiple />
+    <input id=photoselect type=file data-multiple-caption="" multiple />
 
     <div id=editor class=hidden>
         <div id=general>
@@ -34,6 +34,10 @@
     <script>
         var map;
         var marker;
+
+        document.addEventListener('DOMContentLoaded', (event) => {
+            document.getElementById('photoselect').value = ""
+        });
 
         document.addEventListener('DOMContentLoaded', (event) => {
             map = L.map('map').setView([48.8566, 2.3522], 4);

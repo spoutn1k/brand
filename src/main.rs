@@ -1,6 +1,5 @@
 use base64::prelude::*;
 use image::io::Reader as ImageReader;
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 
@@ -101,7 +100,7 @@ fn setup_editor_from_files(files: &Vec<web_sys::FileSystemFileEntry>) -> JsResul
         });
 
     let mut index: Vec<(u32, Vec<web_sys::FileSystemFileEntry>)> = index.into_iter().collect();
-    index.sort_by(|lhs, rhs| lhs.0.partial_cmp(&rhs.0).unwrap());
+    index.sort_by_key(|e| e.0);
 
     log::info!("Files: {index:#?}");
 
@@ -111,31 +110,27 @@ fn setup_editor_from_files(files: &Vec<web_sys::FileSystemFileEntry>) -> JsResul
             .exposures
             .insert(*index, ExposureSpecificData::default());
     }
-    storage!().set_item("data", &serde_json::to_string(&template).unwrap())?;
+
+    storage!().set_item(
+        "data",
+        &serde_json::to_string(&template).map_err(|e| format!("{e}"))?,
+    )?;
 
     for (index, entries) in index.into_iter() {
         let entry = entries.first().unwrap().to_owned();
 
-        create_row(index, entry)?;
+        create_row(index)?;
+        let file_load =
+            Closure::<dyn Fn(_) -> JsResult>::new(move |f: web_sys::File| -> JsResult {
+                read_file(f, query_id!(&format!("exposure-{index}-preview")))
+            });
+
+        entry.file_with_callback(file_load.as_ref().unchecked_ref());
+        file_load.forget();
     }
 
     query_id!("photoselect").class_list().add_1("hidden")?;
     query_id!("editor").class_list().remove_1("hidden")
-}
-
-fn hash(input: String) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(input);
-
-    format!(
-        "i{}",
-        hasher
-            .finalize()
-            .iter()
-            .map(|u| format!("{u:x}"))
-            .collect::<Vec<_>>()
-            .join("")
-    )
 }
 
 fn roll_field_update_handler(
@@ -245,14 +240,6 @@ fn map_input(index: u32) -> JsResult {
     Ok(())
 }
 
-fn gen_tse() -> JsResult {
-    let data: Data = serde_json::from_str(&storage!().get_item("data")?.ok_or("No data")?)
-        .map_err(|e| e.to_string())?;
-
-    download_file("index.tse".into(), data.to_string());
-    Ok(())
-}
-
 fn reset_editor() -> JsResult {
     query_id!("exposures").set_inner_html("");
 
@@ -288,20 +275,21 @@ fn setup_general_fields(data: &RollData) -> JsResult {
     reset.add_event_listener_with_callback("click", reset_editor.as_ref().unchecked_ref())?;
     reset_editor.forget();
 
-    let download = query_id!("download");
-
     let download_tse =
-        Closure::<dyn Fn(_) -> JsResult>::new(move |_: web_sys::Event| -> JsResult { gen_tse() });
+        Closure::<dyn Fn(_) -> JsResult>::new(move |_: web_sys::Event| -> JsResult {
+            let data: Data = serde_json::from_str(&storage!().get_item("data")?.ok_or("No data")?)
+                .map_err(|e| e.to_string())?;
 
-    download.add_event_listener_with_callback("click", download_tse.as_ref().unchecked_ref())?;
+            download_file("index.tse".into(), data.to_string())
+        });
+    query_id!("download")
+        .add_event_listener_with_callback("click", download_tse.as_ref().unchecked_ref())?;
     download_tse.forget();
 
     Ok(())
 }
 
 fn update_row_html(index: u32, data: &ExposureSpecificData) -> JsResult {
-    //let row = query_selector!(&format!("#exposure-{index}"));
-
     query_id!(&format!("sspeed-input-{index}"), web_sys::HtmlInputElement)
         .set_value(&data.sspeed.clone().unwrap_or(String::new()));
     query_id!(
@@ -357,13 +345,12 @@ fn clone_row(index: u32, storage: web_sys::Storage) -> JsResult {
     Ok(())
 }
 
-fn create_row(index: u32, photo: web_sys::FileSystemFileEntry) -> JsResult {
+fn create_row(index: u32) -> JsResult {
     let table = query_selector!("table#exposures");
     let storage = storage!();
 
     let row = el!("tr");
     row.set_id(&format!("exposure-{index}"));
-    let id = el!("td");
     let icon = el!("td");
 
     let sspeed = el!("td");
@@ -433,24 +420,11 @@ fn create_row(index: u32, photo: web_sys::FileSystemFileEntry) -> JsResult {
     options.append_with_node_1(&clone_down)?;
 
     let image = el!("img");
-    let img_id = hash(photo.name());
-    image.set_id(&img_id);
-    image.set_attribute("alt", &format!("Exposure n{}", index))?;
-    {
-        let image = image.clone();
-        let file_load =
-            Closure::<dyn Fn(_) -> JsResult>::new(move |f: web_sys::File| -> JsResult {
-                read_file(f, image.clone())
-            });
-
-        photo.file_with_callback(file_load.as_ref().unchecked_ref());
-        file_load.forget();
-    }
-
-    id.set_text_content(Some(&format!("{index}")));
+    image.set_id(&format!("exposure-{index}-preview"));
+    image.set_attribute("alt", &format!("Exposure number {}", index))?;
     icon.append_with_node_1(&image)?;
 
-    row.append_with_node_7(&id, &icon, &sspeed, &aperture, &lens, &comment, &date)?;
+    row.append_with_node_6(&icon, &sspeed, &aperture, &lens, &comment, &date)?;
     row.append_with_node_2(&gps, &options)?;
     table.append_with_node_1(&row)
 }
@@ -474,9 +448,8 @@ pub fn update_coords(index: u32, lat: f64, lon: f64) -> JsResult {
         &serde_json::to_string(&data).map_err(|e| e.to_string())?,
     )?;
 
-    let container = query_selector!(&format!("#gps-input-{index}"), web_sys::HtmlInputElement);
-
-    container.set_value(&format!("{lat}, {lon}"));
+    query_selector!(&format!("#gps-input-{index}"), web_sys::HtmlInputElement)
+        .set_value(&format!("{lat}, {lon}"));
 
     Ok(())
 }
@@ -515,7 +488,53 @@ fn disable_click(selector: &web_sys::HtmlInputElement) -> JsResult {
 extern "C" {
     fn set_marker(x: f64, y: f64);
     fn prompt_coords(i: u32);
-    fn download_file(filename: String, contents: String);
+    fn encodeURIComponent(i: String) -> String;
+}
+
+fn download_file(filename: String, contents: String) -> JsResult {
+    let element = el!("a", web_sys::HtmlElement);
+    element.set_attribute(
+        "href",
+        &format!(
+            "data:text/plain;charset=utf-8,{}",
+            encodeURIComponent(contents)
+        ),
+    )?;
+    element.set_attribute("download", &filename)?;
+    element.style().set_property("display", "none")?;
+
+    let body = web_sys::window()
+        .ok_or("No window")?
+        .document()
+        .ok_or("no document on window")?
+        .body()
+        .ok_or("no body")?;
+
+    body.append_with_node_1(&element)?;
+    element.click();
+    body.remove_child(&element)?;
+
+    Ok(())
+}
+
+fn setup_editor_from_data(contents: &Data) -> JsResult {
+    setup_general_fields(&contents.roll)?;
+
+    let mut exposures: Vec<(&u32, &ExposureSpecificData)> = contents.exposures.iter().collect();
+    exposures.sort_by_key(|e| e.0);
+
+    for (index, data) in exposures {
+        create_row(*index)?;
+        update_row_html(*index, data)?;
+    }
+
+    storage!().set_item(
+        "data",
+        &serde_json::to_string(&contents).map_err(|e| format!("{e}"))?,
+    )?;
+
+    query_id!("photoselect").class_list().add_1("hidden")?;
+    query_id!("editor").class_list().remove_1("hidden")
 }
 
 fn main() -> JsResult {
@@ -524,5 +543,13 @@ fn main() -> JsResult {
 
     let selector = query_id!("photoselect", web_sys::HtmlInputElement);
     disable_click(&selector)?;
-    setup_drag_drop(&selector)
+    setup_drag_drop(&selector)?;
+
+    let storage = storage!();
+    if let Some(data) = storage.get_item("data")? {
+        let data: Data = serde_json::from_str(&data).map_err(|e| format!("{e}"))?;
+        setup_editor_from_data(&data)?
+    }
+
+    Ok(())
 }

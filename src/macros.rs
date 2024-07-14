@@ -37,18 +37,6 @@ macro_rules! query_selector {
     }};
 }
 
-macro_rules! query_selector_in {
-    ($element:item, $selector:expr) => {{
-        $element
-            .query_selector($selector)?
-            .ok_or(&format!("Failed to access element with {}", $selector))?
-    }};
-
-    ($element:item, $selector:expr, $type:ty) => {{
-        query_selector!($element, $selector).dyn_into::<$type>()?
-    }};
-}
-
 macro_rules! general_input {
     ($field:ident, $placeholder:expr, $data:expr) => {{
         let tmp = query_id!(
@@ -69,11 +57,10 @@ macro_rules! el {
             .ok_or("No window")?
             .document()
             .ok_or("no document on window")?
-            .create_element($tag)
-            .expect("Failed to create element !")
+            .create_element($tag)?
     };
 
     ($tag:expr, $type:ty) => {
-        el!($tag).dyn_into::<web_sys::HtmlInputElement>()?
+        el!($tag).dyn_into::<$type>()?
     };
 }

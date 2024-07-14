@@ -1,264 +1,18 @@
 use base64::prelude::*;
-use chrono::NaiveDateTime;
 use image::io::Reader as ImageReader;
-use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 
-macro_rules! storage {
-    () => {{
-        web_sys::window()
-            .ok_or("no global `window` exists")?
-            .session_storage()?
-            .ok_or("No storage for session !")?
-    }};
-}
+mod models;
+use models::{Data, ExposureSpecificData, RollData};
 
-macro_rules! query_id {
-    ($id:expr, $type:ty) => {{
-        query_id!($id).dyn_into::<$type>()?
-    }};
-
-    ($id:expr) => {{
-        web_sys::window()
-            .ok_or("No window")?
-            .document()
-            .ok_or("no document on window")?
-            .get_element_by_id($id)
-            .ok_or(&format!("Failed to access element of id {}", $id))?
-    }};
-}
-
-macro_rules! query_selector {
-    ($selector:expr) => {{
-        web_sys::window()
-            .ok_or("No window")?
-            .document()
-            .ok_or("no document on window")?
-            .query_selector($selector)?
-            .ok_or(&format!("Failed to access element with {}", $selector))?
-    }};
-
-    ($selector:expr, $type:ty) => {{
-        query_selector!($selector).dyn_into::<$type>()?
-    }};
-}
-
-macro_rules! query_selector_in {
-    ($element:item, $selector:expr) => {{
-        $element
-            .query_selector($selector)?
-            .ok_or(&format!("Failed to access element with {}", $selector))?
-    }};
-
-    ($element:item, $selector:expr, $type:ty) => {{
-        query_selector!($element, $selector).dyn_into::<$type>()?
-    }};
-}
-
-macro_rules! general_input {
-    ($field:ident, $placeholder:expr, $data:expr) => {{
-        let tmp = query_id!(
-            &format!("{}-input", stringify!($field)),
-            web_sys::HtmlInputElement
-        );
-
-        tmp.set_attribute("placeholder", $placeholder)?;
-        tmp.set_value($data.$field.as_ref().unwrap_or(&String::new()));
-
-        tmp
-    }};
-}
-
-macro_rules! el {
-    ($tag:expr) => {
-        web_sys::window()
-            .ok_or("No window")?
-            .document()
-            .ok_or("no document on window")?
-            .create_element($tag)
-            .expect("Failed to create element !")
-    };
-
-    ($tag:expr, $type:ty) => {
-        el!($tag).dyn_into::<web_sys::HtmlInputElement>()?
-    };
-}
+#[macro_use]
+mod macros;
 
 type JsResult<T = ()> = Result<T, JsValue>;
 
-mod my_date_format {
-    use chrono::NaiveDateTime;
-    use serde::{self, Deserialize, Deserializer, Serializer};
-    use serde_with::{DeserializeAs, SerializeAs};
-
-    pub struct Naive;
-
-    const FORMAT: &'static str = "%Y %m %d %H %M %S";
-
-    impl SerializeAs<NaiveDateTime> for Naive {
-        fn serialize_as<S>(value: &NaiveDateTime, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
-        {
-            let s = format!("{}", value.format(FORMAT));
-            serializer.serialize_str(&s)
-        }
-    }
-
-    impl<'de> DeserializeAs<'de, NaiveDateTime> for Naive {
-        fn deserialize_as<D>(deserializer: D) -> Result<NaiveDateTime, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            let s = String::deserialize(deserializer)?;
-            Ok(NaiveDateTime::parse_from_str(&s, FORMAT).map_err(serde::de::Error::custom)?)
-        }
-    }
-}
-
-#[derive(Clone, Default, Debug, Deserialize, Serialize)]
-struct Data {
-    roll: RollData,
-    exposures: std::collections::HashMap<u32, ExposureSpecificData>,
-}
-
-#[derive(Clone, Default, Debug, Deserialize, Serialize)]
-struct RollData {
-    author: Option<String>,
-    make: Option<String>,
-    model: Option<String>,
-    iso: Option<String>,
-    description: Option<String>,
-}
-
-#[serde_with::serde_as]
-#[derive(Clone, Default, Debug, Deserialize, Serialize)]
-struct ExposureSpecificData {
-    sspeed: Option<String>,
-    aperture: Option<String>,
-    lens: Option<String>,
-    comment: Option<String>,
-    #[serde_as(as = "Option<my_date_format::Naive>")]
-    date: Option<NaiveDateTime>,
-    gps: Option<(f64, f64)>,
-}
-
-impl RollData {
-    fn update_field(&mut self, key: &str, value: String) {
-        match key {
-            "author" => self.author = Some(value),
-            "make" => self.make = Some(value),
-            "model" => self.model = Some(value),
-            "iso" => self.iso = Some(value),
-            "description" => self.description = Some(value),
-            _ => todo!(),
-        }
-    }
-
-    fn as_tsv(&self) -> String {
-        format!(
-            "#Description {}
-#ImageDescription {}
-#Artist {}
-#Author {}
-#ISO {}
-#Make {}
-#Model {}
-; vim: set list number noexpandtab:",
-            self.description.clone().unwrap_or(String::new()),
-            self.description.clone().unwrap_or(String::new()),
-            self.author.clone().unwrap_or(String::new()),
-            self.author.clone().unwrap_or(String::new()),
-            self.iso.clone().unwrap_or(String::new()),
-            self.make.clone().unwrap_or(String::new()),
-            self.model.clone().unwrap_or(String::new()),
-        )
-    }
-}
-
-impl ExposureSpecificData {
-    fn update_field(&mut self, key: &str, value: String) {
-        match key {
-            "sspeed" => self.sspeed = Some(value),
-            "aperture" => self.aperture = Some(value),
-            "lens" => self.lens = Some(value),
-            "comment" => self.comment = Some(value),
-            "gps" => {
-                self.gps = {
-                    let split = value.split(",").collect::<Vec<_>>();
-                    if split.len() == 2 {
-                        match (
-                            split[0].trim().parse::<f64>(),
-                            split[1].trim().parse::<f64>(),
-                        ) {
-                            (Ok(lat), Ok(lon)) => Some((lat, lon)),
-                            (Err(e), _) => {
-                                log::error!("lat error: {e}");
-                                None
-                            }
-                            (_, Err(e)) => {
-                                log::error!("lon error: {e}");
-                                None
-                            }
-                        }
-                    } else {
-                        log::error!("Invalid gps coordinates format !");
-                        None
-                    }
-                }
-            }
-            "date" => {
-                self.date = NaiveDateTime::parse_from_str(&value, "%Y-%m-%dT%H:%M:%S")
-                    .or(NaiveDateTime::parse_from_str(&value, "%Y-%m-%dT%H:%M"))
-                    .ok()
-            }
-            _ => todo!(),
-        }
-    }
-
-    fn as_tsv(&self) -> String {
-        let mut fields = vec![
-            self.sspeed.clone().unwrap_or(String::new()),
-            self.aperture.clone().unwrap_or(String::new()),
-            self.lens.clone().unwrap_or(String::new()),
-            self.comment.clone().unwrap_or(String::new()),
-        ];
-
-        fields.push(
-            self.date
-                .map(|d| format!("{}", d.format("%Y %m %d %H %M %S")))
-                .unwrap_or(String::new()),
-        );
-
-        match self.gps {
-            None => fields.push(String::new()),
-            Some((lat, lon)) => fields.push(format!("{lat}, {lon}")),
-        }
-
-        fields.join("\t")
-    }
-}
-
-impl Data {
-    fn to_string(&self) -> String {
-        let mut lines: Vec<String> = vec![];
-        let max: u32 = *self.exposures.keys().max().unwrap_or(&0u32) + 1;
-
-        for index in 1..max {
-            match self.exposures.get(&index) {
-                Some(exp) => lines.push(exp.as_tsv()),
-                None => lines.push(String::new()),
-            }
-        }
-
-        lines.push(self.roll.as_tsv());
-
-        lines.join("\n")
-    }
-}
-
-fn format_image(photo_data: &[u8]) -> JsResult<String> {
+fn embed_file(photo_data: &[u8], target: &web_sys::Element) -> JsResult {
     let photo = ImageReader::new(std::io::Cursor::new(photo_data))
         .with_guessed_format()
         .map_err(|e| e.to_string())?
@@ -273,37 +27,29 @@ fn format_image(photo_data: &[u8]) -> JsResult<String> {
 
     log::debug!("Size: {} -> {}", photo_data.len(), jpg.len());
 
-    Ok(BASE64_STANDARD.encode(jpg))
+    target.set_attribute(
+        "src",
+        &format!(
+            "data:image/{};base64, {}",
+            "jpeg",
+            BASE64_STANDARD.encode(jpg)
+        ),
+    )
 }
 
-fn embed_file(photo_data: &[u8], target: String) -> JsResult {
-    let image_element = query_selector!(&format!("img#{target}"));
-
-    match format_image(photo_data) {
-        Ok(formatted) => image_element.set_attribute(
-            "src",
-            &format!("data:image/{};base64, {}", "jpeg", formatted),
-        )?,
-        Err(e) => log::info!("Error: {e:?}"),
-    }
-
-    Ok(())
-}
-
-fn read_file(file: web_sys::File, target: String) -> JsResult {
+fn read_file(file: web_sys::File, target: web_sys::Element) -> JsResult {
     let reader = web_sys::FileReader::new()?;
     reader.read_as_array_buffer(&file)?;
 
     let r = reader.clone();
     let closure = Closure::<dyn Fn(_)>::new(move |_: web_sys::Event| {
-        log::debug!("Done loading file");
         match r.result() {
             Ok(buffer) => {
                 let data = js_sys::Uint8Array::new(&buffer);
 
                 // Create a Rust slice from the Uint8Array
-                let t = target.clone();
-                if let Err(e) = embed_file(&data.to_vec(), t) {
+                let target = target.clone();
+                if let Err(e) = embed_file(&data.to_vec(), &target) {
                     log::error!("Error embedding file: {e:?}");
                 }
             }
@@ -328,7 +74,7 @@ fn read_file(file: web_sys::File, target: String) -> JsResult {
 fn setup_editor_from_files(files: &Vec<web_sys::FileSystemFileEntry>) -> JsResult {
     setup_general_fields(&RollData::default())?;
 
-    let mut index = std::collections::HashMap::<u32, Vec<web_sys::FileSystemFileEntry>>::new();
+    let mut index = HashMap::<u32, Vec<web_sys::FileSystemFileEntry>>::new();
     let re = regex::Regex::new(r"([0-9]+)").map_err(|e| e.to_string())?;
     let _ = files
         .into_iter()
@@ -535,19 +281,17 @@ fn setup_general_fields(data: &RollData) -> JsResult {
 
     let reset = query_id!("editor-reset");
 
-    let reset_editor = Closure::<dyn Fn(_)>::new(move |_: web_sys::Event| {
-        if let Err(e) = reset_editor() {
-            log::error!("{e:?}");
-        }
-    });
+    let reset_editor =
+        Closure::<dyn Fn(_) -> JsResult>::new(move |_: web_sys::Event| -> JsResult {
+            reset_editor()
+        });
     reset.add_event_listener_with_callback("click", reset_editor.as_ref().unchecked_ref())?;
     reset_editor.forget();
 
     let download = query_id!("download");
 
-    let download_tse = Closure::<dyn Fn(_)>::new(move |_: web_sys::Event| {
-        gen_tse().unwrap();
-    });
+    let download_tse =
+        Closure::<dyn Fn(_) -> JsResult>::new(move |_: web_sys::Event| -> JsResult { gen_tse() });
 
     download.add_event_listener_with_callback("click", download_tse.as_ref().unchecked_ref())?;
     download_tse.forget();
@@ -556,67 +300,31 @@ fn setup_general_fields(data: &RollData) -> JsResult {
 }
 
 fn update_row_html(index: u32, data: &ExposureSpecificData) -> JsResult {
-    let row = query_selector!(&format!("#exposure-{index}"));
+    //let row = query_selector!(&format!("#exposure-{index}"));
 
-    let inputs = row.children();
-    inputs
-        .item(2)
-        .ok_or("No input !")?
-        .get_elements_by_tag_name("input")
-        .item(0)
-        .ok_or("Failed")?
-        .dyn_into::<web_sys::HtmlInputElement>()?
+    query_id!(&format!("sspeed-input-{index}"), web_sys::HtmlInputElement)
         .set_value(&data.sspeed.clone().unwrap_or(String::new()));
-    inputs
-        .item(3)
-        .ok_or("No input !")?
-        .get_elements_by_tag_name("input")
-        .item(0)
-        .ok_or("Failed")?
-        .dyn_into::<web_sys::HtmlInputElement>()?
-        .set_value(&data.aperture.clone().unwrap_or(String::new()));
-    inputs
-        .item(4)
-        .ok_or("No input !")?
-        .get_elements_by_tag_name("input")
-        .item(0)
-        .ok_or("Failed")?
-        .dyn_into::<web_sys::HtmlInputElement>()?
+    query_id!(
+        &format!("aperture-input-{index}"),
+        web_sys::HtmlInputElement
+    )
+    .set_value(&data.aperture.clone().unwrap_or(String::new()));
+    query_id!(&format!("lens-input-{index}"), web_sys::HtmlInputElement)
         .set_value(&data.lens.clone().unwrap_or(String::new()));
-    inputs
-        .item(5)
-        .ok_or("No input !")?
-        .get_elements_by_tag_name("input")
-        .item(0)
-        .ok_or("Failed")?
-        .dyn_into::<web_sys::HtmlInputElement>()?
+    query_id!(&format!("comment-input-{index}"), web_sys::HtmlInputElement)
         .set_value(&data.comment.clone().unwrap_or(String::new()));
-    inputs
-        .item(6)
-        .ok_or("No input !")?
-        .get_elements_by_tag_name("input")
-        .item(0)
-        .ok_or("Failed")?
-        .dyn_into::<web_sys::HtmlInputElement>()?
-        .set_value(
-            &data
-                .date
-                .and_then(|d| Some(format!("{}", d.format("%Y-%m-%dT%H:%M:%S"))))
-                .unwrap_or(String::new()),
-        );
-    inputs
-        .item(7)
-        .ok_or("No input !")?
-        .get_elements_by_tag_name("input")
-        .item(0)
-        .ok_or("Failed")?
-        .dyn_into::<web_sys::HtmlInputElement>()?
-        .set_value(
-            &data
-                .gps
-                .and_then(|(la, lo)| Some(format!("{la}, {lo}")))
-                .unwrap_or(String::new()),
-        );
+    query_id!(&format!("date-input-{index}"), web_sys::HtmlInputElement).set_value(
+        &data
+            .date
+            .and_then(|d| Some(format!("{}", d.format("%Y-%m-%dT%H:%M:%S"))))
+            .unwrap_or(String::new()),
+    );
+    query_id!(&format!("gps-input-{index}"), web_sys::HtmlInputElement).set_value(
+        &data
+            .gps
+            .and_then(|(la, lo)| Some(format!("{la}, {lo}")))
+            .unwrap_or(String::new()),
+    );
 
     Ok(())
 }
@@ -657,7 +365,6 @@ fn create_row(index: u32, photo: web_sys::FileSystemFileEntry) -> JsResult {
     row.set_id(&format!("exposure-{index}"));
     let id = el!("td");
     let icon = el!("td");
-    let image = el!("img");
 
     let sspeed = el!("td");
     let aperture = el!("td");
@@ -671,12 +378,16 @@ fn create_row(index: u32, photo: web_sys::FileSystemFileEntry) -> JsResult {
     sspeed_input.set_id(&format!("sspeed-input-{index}"));
     sspeed_input.set_attribute("placeholder", "Shutter Speed")?;
     let aperture_input = el!("input");
+    aperture_input.set_id(&format!("aperture-input-{index}"));
     aperture_input.set_attribute("placeholder", "Aperture")?;
     let lens_input = el!("input");
+    lens_input.set_id(&format!("lens-input-{index}"));
     lens_input.set_attribute("placeholder", "Focal length")?;
     let comment_input = el!("input");
+    comment_input.set_id(&format!("comment-input-{index}"));
     comment_input.set_attribute("placeholder", "Title")?;
     let date_input = el!("input");
+    date_input.set_id(&format!("date-input-{index}"));
     date_input.set_attribute("type", "datetime-local")?;
     date_input.set_attribute("step", "1")?;
     let gps_input = el!("input");
@@ -721,15 +432,20 @@ fn create_row(index: u32, photo: web_sys::FileSystemFileEntry) -> JsResult {
     gps.append_with_node_2(&gps_input, &gps_select)?;
     options.append_with_node_1(&clone_down)?;
 
+    let image = el!("img");
     let img_id = hash(photo.name());
     image.set_id(&img_id);
     image.set_attribute("alt", &format!("Exposure n{}", index))?;
-    let file_load = Closure::<dyn Fn(_)>::new(move |f: web_sys::File| {
-        read_file(f, img_id.clone()).unwrap();
-    });
+    {
+        let image = image.clone();
+        let file_load =
+            Closure::<dyn Fn(_) -> JsResult>::new(move |f: web_sys::File| -> JsResult {
+                read_file(f, image.clone())
+            });
 
-    photo.file_with_callback(file_load.as_ref().unchecked_ref());
-    file_load.forget();
+        photo.file_with_callback(file_load.as_ref().unchecked_ref());
+        file_load.forget();
+    }
 
     id.set_text_content(Some(&format!("{index}")));
     icon.append_with_node_1(&image)?;
@@ -740,15 +456,9 @@ fn create_row(index: u32, photo: web_sys::FileSystemFileEntry) -> JsResult {
 }
 
 #[wasm_bindgen]
-pub fn update_coords(index: u32, lat: f64, lon: f64) {
+pub fn update_coords(index: u32, lat: f64, lon: f64) -> JsResult {
     log::debug!("Updating coords for exposure {index}: {lat} / {lon}!");
 
-    if let Err(e) = update_coords_error(index, lat, lon) {
-        log::error!("{e:?}");
-    }
-}
-
-fn update_coords_error(index: u32, lat: f64, lon: f64) -> JsResult {
     let storage = storage!();
 
     let mut data: Data = serde_json::from_str(&storage.get_item("data")?.ok_or("No data")?)
@@ -813,8 +523,6 @@ fn main() -> JsResult {
     wasm_logger::init(wasm_logger::Config::default());
 
     let selector = query_id!("photoselect", web_sys::HtmlInputElement);
-
     disable_click(&selector)?;
-
     setup_drag_drop(&selector)
 }

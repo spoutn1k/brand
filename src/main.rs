@@ -5,6 +5,86 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use wasm_bindgen::prelude::*;
 
+macro_rules! storage {
+    () => {{
+        web_sys::window()
+            .ok_or("no global `window` exists")?
+            .session_storage()?
+            .ok_or("No storage for session !")?
+    }};
+}
+
+macro_rules! query_id {
+    ($id:expr, $type:ty) => {{
+        query_id!($id).dyn_into::<$type>()?
+    }};
+
+    ($id:expr) => {{
+        web_sys::window()
+            .ok_or("No window")?
+            .document()
+            .ok_or("no document on window")?
+            .get_element_by_id($id)
+            .ok_or(&format!("Failed to access element of id {}", $id))?
+    }};
+}
+
+macro_rules! query_selector {
+    ($selector:expr) => {{
+        web_sys::window()
+            .ok_or("No window")?
+            .document()
+            .ok_or("no document on window")?
+            .query_selector($selector)?
+            .ok_or(&format!("Failed to access element with {}", $selector))?
+    }};
+
+    ($selector:expr, $type:ty) => {{
+        query_selector!($selector).dyn_into::<$type>()?
+    }};
+}
+
+macro_rules! query_selector_in {
+    ($element:item, $selector:expr) => {{
+        $element
+            .query_selector($selector)?
+            .ok_or(&format!("Failed to access element with {}", $selector))?
+    }};
+
+    ($element:item, $selector:expr, $type:ty) => {{
+        query_selector!($element, $selector).dyn_into::<$type>()?
+    }};
+}
+
+macro_rules! general_input {
+    ($field:ident, $placeholder:expr, $data:expr) => {{
+        let tmp = query_id!(
+            &format!("{}-input", stringify!($field)),
+            web_sys::HtmlInputElement
+        );
+
+        tmp.set_attribute("placeholder", $placeholder)?;
+        tmp.set_value($data.$field.as_ref().unwrap_or(&String::new()));
+
+        tmp
+    }};
+}
+
+macro_rules! el {
+    ($tag:expr) => {
+        web_sys::window()
+            .ok_or("No window")?
+            .document()
+            .ok_or("no document on window")?
+            .create_element($tag)
+            .expect("Failed to create element !")
+    };
+
+    ($tag:expr, $type:ty) => {
+        el!($tag).dyn_into::<web_sys::HtmlInputElement>()?
+    };
+}
+
 type JsResult<T = ()> = Result<T, JsValue>;
 
 mod my_date_format {
@@ -197,14 +277,7 @@ fn format_image(photo_data: &[u8]) -> JsResult<String> {
 }
 
 fn embed_file(photo_data: &[u8], target: String) -> JsResult {
-    let document = web_sys::window()
-        .ok_or("no global `window` exists")?
-        .document()
-        .ok_or("no document on window")?;
-
-    let image_element = document
-        .query_selector(&format!("img#{target}"))?
-        .ok_or("no image target !")?;
+    let image_element = query_selector!(&format!("img#{target}"));
 
     match format_image(photo_data) {
         Ok(formatted) => image_element.set_attribute(
@@ -252,10 +325,8 @@ fn read_file(file: web_sys::File, target: String) -> JsResult {
     Ok(())
 }
 
-fn setup_editor(files: &Vec<web_sys::FileSystemFileEntry>) -> JsResult {
-    setup_general_fields()?;
-
-    let window = web_sys::window().ok_or("No window")?;
+fn setup_editor_from_files(files: &Vec<web_sys::FileSystemFileEntry>) -> JsResult {
+    setup_general_fields(&RollData::default())?;
 
     let mut index = std::collections::HashMap::<u32, Vec<web_sys::FileSystemFileEntry>>::new();
     let re = regex::Regex::new(r"([0-9]+)").map_err(|e| e.to_string())?;
@@ -288,16 +359,13 @@ fn setup_editor(files: &Vec<web_sys::FileSystemFileEntry>) -> JsResult {
 
     log::info!("Files: {index:#?}");
 
-    let storage = window.session_storage()?.unwrap();
-    storage.clear()?;
-
     let mut template = Data::default();
     for (index, _) in index.iter() {
         template
             .exposures
             .insert(*index, ExposureSpecificData::default());
     }
-    storage.set_item("data", &serde_json::to_string(&template).unwrap())?;
+    storage!().set_item("data", &serde_json::to_string(&template).unwrap())?;
 
     for (index, entries) in index.into_iter() {
         let entry = entries.first().unwrap().to_owned();
@@ -305,26 +373,8 @@ fn setup_editor(files: &Vec<web_sys::FileSystemFileEntry>) -> JsResult {
         create_row(index, entry)?;
     }
 
-    let document = window.document().ok_or("no document on window")?;
-
-    document
-        .get_element_by_id("photoselect")
-        .ok_or("No selector !")?
-        .class_list()
-        .add_1("hidden")?;
-
-    document
-        .get_element_by_id("editor")
-        .ok_or("No editor !")?
-        .class_list()
-        .remove_1("hidden")
-}
-
-macro_rules! el {
-    ($src:expr, $type:expr) => {
-        $src.create_element($type)
-            .expect("Failed to create element !")
-    };
+    query_id!("photoselect").class_list().add_1("hidden")?;
+    query_id!("editor").class_list().remove_1("hidden")
 }
 
 fn hash(input: String) -> String {
@@ -433,12 +483,7 @@ fn set_exposure_handler(
 }
 
 fn map_input(index: u32) -> JsResult {
-    let storage = web_sys::window()
-        .ok_or("No window")?
-        .session_storage()?
-        .ok_or("No session storage !")?;
-
-    let data: Data = serde_json::from_str(&storage.get_item("data")?.ok_or("No data found !")?)
+    let data: Data = serde_json::from_str(&storage!().get_item("data")?.ok_or("No data found !")?)
         .map_err(|e| e.to_string())?;
 
     if let Some((lat, lon)) = data
@@ -455,12 +500,7 @@ fn map_input(index: u32) -> JsResult {
 }
 
 fn gen_tse() -> JsResult {
-    let storage = web_sys::window()
-        .ok_or("No window")?
-        .session_storage()?
-        .ok_or("No session storage !")?;
-
-    let data: Data = serde_json::from_str(&storage.get_item("data")?.ok_or("No data")?)
+    let data: Data = serde_json::from_str(&storage!().get_item("data")?.ok_or("No data")?)
         .map_err(|e| e.to_string())?;
 
     download_file("index.tse".into(), data.to_string());
@@ -468,63 +508,24 @@ fn gen_tse() -> JsResult {
 }
 
 fn reset_editor() -> JsResult {
-    let window = web_sys::window().ok_or("no global `window` exists")?;
-    let document = window.document().ok_or("no document on window")?;
+    query_id!("exposures").set_inner_html("");
 
-    document
-        .get_element_by_id("exposures")
-        .ok_or("No exposures !")?
-        .set_inner_html("");
-
-    let selector = document
-        .get_element_by_id("photoselect")
-        .ok_or("No selector !")?;
+    let selector = query_id!("photoselect", web_sys::HtmlInputElement);
     selector.class_list().remove_1("hidden")?;
-    selector
-        .dyn_into::<web_sys::HtmlInputElement>()?
-        .set_value("");
+    selector.set_value("");
 
-    document
-        .get_element_by_id("editor")
-        .ok_or("No editor !")?
-        .class_list()
-        .add_1("hidden")?;
-
-    let storage = window
-        .session_storage()?
-        .ok_or("No storage for session !")?;
-
-    storage.clear()
+    query_id!("editor").class_list().add_1("hidden")?;
+    storage!().clear()
 }
 
-fn setup_general_fields() -> JsResult {
-    let window = web_sys::window().ok_or("no global `window` exists")?;
-    let document = window.document().ok_or("no document on window")?;
+fn setup_general_fields(data: &RollData) -> JsResult {
+    let storage = storage!();
 
-    let storage = window
-        .session_storage()?
-        .ok_or("No storage for session !")?;
-
-    let author_input = document
-        .get_element_by_id("author-input")
-        .ok_or("No author_input !")?;
-    author_input.set_attribute("placeholder", "Author")?;
-    let make_input = document
-        .get_element_by_id("make-input")
-        .ok_or("No make_input !")?;
-    make_input.set_attribute("placeholder", "Camera Make")?;
-    let model_input = document
-        .get_element_by_id("model-input")
-        .ok_or("No model_input !")?;
-    model_input.set_attribute("placeholder", "Camera Model")?;
-    let iso_input = document
-        .get_element_by_id("iso-input")
-        .ok_or("No iso_input !")?;
-    iso_input.set_attribute("placeholder", "ISO")?;
-    let description_input = document
-        .get_element_by_id("description-input")
-        .ok_or("No description_input !")?;
-    description_input.set_attribute("placeholder", "Film type")?;
+    let author_input = general_input!(author, "Author", data);
+    let make_input = general_input!(make, "Camera Brand", data);
+    let model_input = general_input!(model, "Camera Model", data);
+    let iso_input = general_input!(iso, "ISO", data);
+    let description_input = general_input!(description, "Film type", data);
 
     set_general_handler("author".into(), &author_input, storage.clone())?;
     set_general_handler("make".into(), &make_input, storage.clone())?;
@@ -532,9 +533,7 @@ fn setup_general_fields() -> JsResult {
     set_general_handler("iso".into(), &iso_input, storage.clone())?;
     set_general_handler("description".into(), &description_input, storage.clone())?;
 
-    let reset = document
-        .get_element_by_id("editor-reset")
-        .ok_or("No download !")?;
+    let reset = query_id!("editor-reset");
 
     let reset_editor = Closure::<dyn Fn(_)>::new(move |_: web_sys::Event| {
         if let Err(e) = reset_editor() {
@@ -544,9 +543,7 @@ fn setup_general_fields() -> JsResult {
     reset.add_event_listener_with_callback("click", reset_editor.as_ref().unchecked_ref())?;
     reset_editor.forget();
 
-    let download = document
-        .get_element_by_id("download")
-        .ok_or("No download !")?;
+    let download = query_id!("download");
 
     let download_tse = Closure::<dyn Fn(_)>::new(move |_: web_sys::Event| {
         gen_tse().unwrap();
@@ -559,12 +556,7 @@ fn setup_general_fields() -> JsResult {
 }
 
 fn update_row_html(index: u32, data: &ExposureSpecificData) -> JsResult {
-    let row = web_sys::window()
-        .ok_or("no global `window` exists")?
-        .document()
-        .ok_or("no document on window")?
-        .query_selector(&format!("#exposure-{index}"))?
-        .ok_or("No row ?")?;
+    let row = query_selector!(&format!("#exposure-{index}"));
 
     let inputs = row.children();
     inputs
@@ -658,50 +650,42 @@ fn clone_row(index: u32, storage: web_sys::Storage) -> JsResult {
 }
 
 fn create_row(index: u32, photo: web_sys::FileSystemFileEntry) -> JsResult {
-    let window = web_sys::window().ok_or("no global `window` exists")?;
-    let document = window.document().ok_or("no document on window")?;
+    let table = query_selector!("table#exposures");
+    let storage = storage!();
 
-    let table = document
-        .query_selector("table#exposures")?
-        .ok_or("No table ?")?;
-
-    let storage = window
-        .session_storage()?
-        .ok_or("No storage for session !")?;
-
-    let row = el!(document, "tr");
+    let row = el!("tr");
     row.set_id(&format!("exposure-{index}"));
-    let id = el!(document, "td");
-    let icon = el!(document, "td");
-    let image = el!(document, "img");
+    let id = el!("td");
+    let icon = el!("td");
+    let image = el!("img");
 
-    let sspeed = el!(document, "td");
-    let aperture = el!(document, "td");
-    let lens = el!(document, "td");
-    let comment = el!(document, "td");
-    let date = el!(document, "td");
-    let gps = el!(document, "td");
-    let options = el!(document, "td");
+    let sspeed = el!("td");
+    let aperture = el!("td");
+    let lens = el!("td");
+    let comment = el!("td");
+    let date = el!("td");
+    let gps = el!("td");
+    let options = el!("td");
 
-    let sspeed_input = el!(document, "input");
+    let sspeed_input = el!("input");
     sspeed_input.set_id(&format!("sspeed-input-{index}"));
     sspeed_input.set_attribute("placeholder", "Shutter Speed")?;
-    let aperture_input = el!(document, "input");
+    let aperture_input = el!("input");
     aperture_input.set_attribute("placeholder", "Aperture")?;
-    let lens_input = el!(document, "input");
+    let lens_input = el!("input");
     lens_input.set_attribute("placeholder", "Focal length")?;
-    let comment_input = el!(document, "input");
+    let comment_input = el!("input");
     comment_input.set_attribute("placeholder", "Title")?;
-    let date_input = el!(document, "input");
+    let date_input = el!("input");
     date_input.set_attribute("type", "datetime-local")?;
     date_input.set_attribute("step", "1")?;
-    let gps_input = el!(document, "input");
+    let gps_input = el!("input");
     gps_input.set_id(&format!("gps-input-{index}"));
     gps_input.set_attribute("placeholder", "GPS coordinates")?;
-    let gps_select = el!(document, "input").dyn_into::<web_sys::HtmlInputElement>()?;
+    let gps_select = el!("input", web_sys::HtmlInputElement);
     gps_select.set_attribute("type", "button")?;
     gps_select.set_value("Map");
-    let clone_down = el!(document, "input").dyn_into::<web_sys::HtmlInputElement>()?;
+    let clone_down = el!("input", web_sys::HtmlInputElement);
     clone_down.set_attribute("type", "button")?;
     clone_down.set_value("Clone below");
 
@@ -765,10 +749,7 @@ pub fn update_coords(index: u32, lat: f64, lon: f64) {
 }
 
 fn update_coords_error(index: u32, lat: f64, lon: f64) -> JsResult {
-    let storage = web_sys::window()
-        .ok_or("No window")?
-        .session_storage()?
-        .ok_or("No storage !")?;
+    let storage = storage!();
 
     let mut data: Data = serde_json::from_str(&storage.get_item("data")?.ok_or("No data")?)
         .map_err(|e| e.to_string())?;
@@ -783,44 +764,29 @@ fn update_coords_error(index: u32, lat: f64, lon: f64) -> JsResult {
         &serde_json::to_string(&data).map_err(|e| e.to_string())?,
     )?;
 
-    let document = web_sys::window()
-        .ok_or("no global `window` exists")?
-        .document()
-        .ok_or("no document on window")?;
-
-    let container = document
-        .query_selector(&format!("#gps-input-{index}"))?
-        .ok_or("no selector !")?
-        .dyn_into::<web_sys::HtmlInputElement>()?;
+    let container = query_selector!(&format!("#gps-input-{index}"), web_sys::HtmlInputElement);
 
     container.set_value(&format!("{lat}, {lon}"));
 
     Ok(())
 }
 
-fn wrapper_webkit() -> JsResult {
-    let selector = web_sys::window()
-        .ok_or("no global `window` exists")?
-        .document()
-        .ok_or("no document on window")?
-        .query_selector("#photoselect")?
-        .ok_or("no selector !")?
-        .dyn_into::<web_sys::HtmlInputElement>()?;
+fn setup_drag_drop(photo_selector: &web_sys::HtmlInputElement) -> JsResult {
+    let closure =
+        Closure::<dyn Fn(_) -> JsResult>::new(move |event: web_sys::InputEvent| -> JsResult {
+            let files = event
+                .target()
+                .ok_or("No target for input event ?")?
+                .dyn_into::<web_sys::HtmlInputElement>()?
+                .webkit_entries()
+                .iter()
+                .map(|f| f.dyn_into::<web_sys::FileSystemFileEntry>())
+                .collect::<Result<Vec<_>, _>>()?;
 
-    disable_click(&selector)?;
+            setup_editor_from_files(&files)
+        });
 
-    let target = selector.clone();
-    let closure = Closure::<dyn Fn(_)>::new(move |_: web_sys::InputEvent| {
-        let files = target
-            .webkit_entries()
-            .iter()
-            .map(|f| f.dyn_into::<web_sys::FileSystemFileEntry>().unwrap())
-            .collect();
-
-        setup_editor(&files).unwrap();
-    });
-
-    selector.add_event_listener_with_callback("change", closure.as_ref().unchecked_ref())?;
+    photo_selector.add_event_listener_with_callback("change", closure.as_ref().unchecked_ref())?;
     closure.forget();
 
     Ok(())
@@ -842,11 +808,13 @@ extern "C" {
     fn download_file(filename: String, contents: String);
 }
 
-fn main() {
+fn main() -> JsResult {
     console_error_panic_hook::set_once();
     wasm_logger::init(wasm_logger::Config::default());
 
-    if let Err(e) = wrapper_webkit() {
-        log::error!("{}", e.as_string().unwrap())
-    }
+    let selector = query_id!("photoselect", web_sys::HtmlInputElement);
+
+    disable_click(&selector)?;
+
+    setup_drag_drop(&selector)
 }

@@ -195,6 +195,30 @@ fn setup_roll_fields(data: &RollData) -> JsResult {
         .add_event_listener_with_callback("click", reset_editor.as_ref().unchecked_ref())?;
     reset_editor.forget();
 
+    let selection_clear =
+        Closure::<dyn Fn(_) -> JsResult>::new(move |_: web_sys::Event| -> JsResult {
+            controller::update(Update::SelectionClear)
+        });
+    query_id!("editor-selection-clear")
+        .add_event_listener_with_callback("click", selection_clear.as_ref().unchecked_ref())?;
+    selection_clear.forget();
+
+    let selection_glob =
+        Closure::<dyn Fn(_) -> JsResult>::new(move |_: web_sys::Event| -> JsResult {
+            controller::update(Update::SelectionAll)
+        });
+    query_id!("editor-selection-glob")
+        .add_event_listener_with_callback("click", selection_glob.as_ref().unchecked_ref())?;
+    selection_glob.forget();
+
+    let selection_invert =
+        Closure::<dyn Fn(_) -> JsResult>::new(move |_: web_sys::Event| -> JsResult {
+            controller::update(Update::SelectionInvert)
+        });
+    query_id!("editor-selection-invert")
+        .add_event_listener_with_callback("click", selection_invert.as_ref().unchecked_ref())?;
+    selection_invert.forget();
+
     let download_tse =
         Closure::<dyn Fn(_) -> JsResult>::new(move |_: web_sys::Event| -> JsResult {
             let data: Data = serde_json::from_str(&storage!().get_item("data")?.ok_or("No data")?)
@@ -221,6 +245,21 @@ fn update_exposure_ui(index: u32, data: &UIExposureUpdate) -> JsResult {
 
     query_id!(id, web_sys::HtmlInputElement).set_value(contents);
     Ok(())
+}
+
+fn set_exposure_selection(index: u32, selected: bool) -> JsResult {
+    query_id!(
+        &format!("exposure-input-select-{index}"),
+        web_sys::HtmlInputElement
+    )
+    .set_checked(selected);
+
+    let classes = query_id!(&format!("exposure-{index}")).class_list();
+    if selected {
+        classes.add_1("selected")
+    } else {
+        classes.remove_1("selected")
+    }
 }
 
 fn create_row(index: u32, selected: bool) -> JsResult {

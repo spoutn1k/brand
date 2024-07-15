@@ -1,4 +1,5 @@
 use crate::models::{Data, ExposureSpecificData};
+use crate::set_exposure_selection;
 use crate::update_exposure_ui;
 use crate::JsResult;
 use chrono::NaiveDateTime;
@@ -7,6 +8,9 @@ use std::convert::TryInto;
 pub enum Update {
     CloneDown(u32),
     SelectExposure(u32),
+    SelectionClear,
+    SelectionAll,
+    SelectionInvert,
     Exposure(u32, ExposureSpecificData),
     ExposureField(u32, UIExposureUpdate),
     Roll(UIRollUpdate),
@@ -218,9 +222,40 @@ fn toggle_selection(index: u32) -> JsResult {
 
     if let Some(position) = selection.iter().position(|e| *e == index) {
         selection.swap_remove(position);
+        set_exposure_selection(index, false)?;
     } else {
         selection.push(index);
+        set_exposure_selection(index, true)?;
     }
+
+    storage.set_item(
+        "selected",
+        &serde_json::to_string(&selection).map_err(|e| e.to_string())?,
+    )
+}
+
+fn manage_selection<F: Fn(bool) -> bool>(choice: F) -> JsResult {
+    let storage = storage!();
+    let data: Data = serde_json::from_str(&storage.get_item("data")?.ok_or("No data")?)
+        .map_err(|e| e.to_string())?;
+
+    let selection: Vec<u32> =
+        serde_json::from_str(&storage.get_item("selected")?.unwrap_or("[]".into()))
+            .map_err(|e| e.to_string())?;
+
+    let selection = data
+        .exposures
+        .keys()
+        .filter_map(|i| {
+            let new = choice(selection.contains(i));
+            set_exposure_selection(*i, new).ok();
+            if new {
+                Some(i)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
 
     storage.set_item(
         "selected",
@@ -235,5 +270,8 @@ pub fn update(event: Update) -> JsResult {
         Update::ExposureField(i, d) => exposure_update_field(i, d),
         Update::CloneDown(i) => clone_row(i),
         Update::SelectExposure(e) => toggle_selection(e),
+        Update::SelectionClear => manage_selection(|_| false),
+        Update::SelectionAll => manage_selection(|_| true),
+        Update::SelectionInvert => manage_selection(|s| !s),
     }
 }

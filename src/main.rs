@@ -67,7 +67,7 @@ fn read_file(file: web_sys::File, target: web_sys::Element) -> JsResult {
 }
 
 fn setup_editor_from_files(files: &Vec<web_sys::FileSystemFileEntry>) -> JsResult {
-    setup_general_fields(&RollData::default())?;
+    setup_roll_fields(&RollData::default())?;
 
     let mut index = HashMap::<u32, Vec<web_sys::FileSystemFileEntry>>::new();
     let re = regex::Regex::new(r"([0-9]+)").map_err(|e| e.to_string())?;
@@ -98,8 +98,6 @@ fn setup_editor_from_files(files: &Vec<web_sys::FileSystemFileEntry>) -> JsResul
     let mut index: Vec<(u32, Vec<web_sys::FileSystemFileEntry>)> = index.into_iter().collect();
     index.sort_by_key(|e| e.0);
 
-    log::info!("Files: {index:#?}");
-
     let mut template = Data::default();
     for (index, _) in index.iter() {
         template
@@ -129,7 +127,7 @@ fn setup_editor_from_files(files: &Vec<web_sys::FileSystemFileEntry>) -> JsResul
     query_id!("editor").class_list().remove_1("hidden")
 }
 
-fn set_general_handler(
+fn set_roll_handler(
     field: impl Fn(String) -> UIRollUpdate + 'static,
     input: &web_sys::Element,
 ) -> JsResult {
@@ -153,7 +151,7 @@ fn set_exposure_handler(
 ) -> JsResult {
     let handler =
         Closure::<dyn Fn(_) -> JsResult>::new(move |event: web_sys::InputEvent| -> JsResult {
-            controller::update(Update::Exposure(
+            controller::update(Update::ExposureField(
                 index,
                 field(event_target!(event, web_sys::HtmlInputElement).value()),
             ))
@@ -176,18 +174,18 @@ fn reset_editor() -> JsResult {
     storage!().clear()
 }
 
-fn setup_general_fields(data: &RollData) -> JsResult {
-    let author_input = general_input!(author, "Author", data);
-    let make_input = general_input!(make, "Camera Brand", data);
-    let model_input = general_input!(model, "Camera Model", data);
-    let iso_input = general_input!(iso, "ISO", data);
-    let description_input = general_input!(description, "Film type", data);
+fn setup_roll_fields(data: &RollData) -> JsResult {
+    let author_input = roll_input!(author, "Author", data);
+    let make_input = roll_input!(make, "Camera Brand", data);
+    let model_input = roll_input!(model, "Camera Model", data);
+    let iso_input = roll_input!(iso, "ISO", data);
+    let description_input = roll_input!(description, "Film type", data);
 
-    set_general_handler(UIRollUpdate::Author, &author_input)?;
-    set_general_handler(UIRollUpdate::Make, &make_input)?;
-    set_general_handler(UIRollUpdate::Model, &model_input)?;
-    set_general_handler(UIRollUpdate::ISO, &iso_input)?;
-    set_general_handler(UIRollUpdate::Film, &description_input)?;
+    set_roll_handler(UIRollUpdate::Author, &author_input)?;
+    set_roll_handler(UIRollUpdate::Make, &make_input)?;
+    set_roll_handler(UIRollUpdate::Model, &model_input)?;
+    set_roll_handler(UIRollUpdate::ISO, &iso_input)?;
+    set_roll_handler(UIRollUpdate::Film, &description_input)?;
 
     let reset_editor =
         Closure::<dyn Fn(_) -> JsResult>::new(move |_: web_sys::Event| -> JsResult {
@@ -223,28 +221,6 @@ fn update_exposure_ui(index: u32, data: &UIExposureUpdate) -> JsResult {
 
     query_id!(id, web_sys::HtmlInputElement).set_value(contents);
     Ok(())
-}
-
-fn update_exposure_entire_ui(index: u32, data: &ExposureSpecificData) -> JsResult<Vec<()>> {
-    vec![
-        UIExposureUpdate::ShutterSpeed(data.sspeed.clone().unwrap_or_default()),
-        UIExposureUpdate::Aperture(data.aperture.clone().unwrap_or_default()),
-        UIExposureUpdate::Comment(data.comment.clone().unwrap_or_default()),
-        UIExposureUpdate::Lens(data.lens.clone().unwrap_or_default()),
-        UIExposureUpdate::Date(
-            data.date
-                .map(|d| format!("{}", d.format("%Y-%m-%dT%H:%M:%S")))
-                .unwrap_or_default(),
-        ),
-        UIExposureUpdate::GPS(
-            data.gps
-                .map(|(lat, lon)| format!("{lat}, {lon}"))
-                .unwrap_or_default(),
-        ),
-    ]
-    .iter()
-    .map(|c| update_exposure_ui(index, c))
-    .collect()
 }
 
 fn create_row(index: u32) -> JsResult {
@@ -361,7 +337,7 @@ fn create_row(index: u32) -> JsResult {
 pub fn update_coords(index: u32, lat: f64, lon: f64) -> JsResult {
     let change = UIExposureUpdate::GPS(format!("{lat}, {lon}"));
     update_exposure_ui(index, &change)?;
-    controller::update(Update::Exposure(index, change))
+    controller::update(Update::ExposureField(index, change))
 }
 
 fn setup_drag_drop(photo_selector: &web_sys::HtmlInputElement) -> JsResult {
@@ -425,14 +401,14 @@ fn download_file(filename: String, contents: String) -> JsResult {
 }
 
 fn setup_editor_from_data(contents: &Data) -> JsResult {
-    setup_general_fields(&contents.roll)?;
+    setup_roll_fields(&contents.roll)?;
 
     let mut exposures: Vec<(&u32, &ExposureSpecificData)> = contents.exposures.iter().collect();
     exposures.sort_by_key(|e| e.0);
 
     for (index, data) in exposures {
         create_row(*index)?;
-        update_exposure_entire_ui(*index, data)?;
+        controller::update(Update::Exposure(*index, data.clone()))?;
     }
 
     storage!().set_item(

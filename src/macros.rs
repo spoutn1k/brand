@@ -37,10 +37,10 @@ macro_rules! query_selector {
     }};
 }
 
-macro_rules! general_input {
+macro_rules! roll_input {
     ($field:ident, $placeholder:expr, $data:expr) => {{
         let tmp = query_id!(
-            &format!("{}-input", stringify!($field)),
+            &format!("roll-{}-input", stringify!($field)),
             web_sys::HtmlInputElement
         );
 

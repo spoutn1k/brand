@@ -1,12 +1,13 @@
 use crate::models::{Data, ExposureSpecificData};
-use crate::update_exposure_entire_ui;
+use crate::update_exposure_ui;
 use crate::JsResult;
 use chrono::NaiveDateTime;
 use std::convert::TryInto;
 
 pub enum Update {
     CloneDown(u32),
-    Exposure(u32, UIExposureUpdate),
+    Exposure(u32, ExposureSpecificData),
+    ExposureField(u32, UIExposureUpdate),
     Roll(UIRollUpdate),
 }
 
@@ -78,8 +79,12 @@ impl TryInto<ExposureUpdate> for UIExposureUpdate {
                         split[1].trim().parse::<f64>(),
                     ) {
                         (Ok(lat), Ok(lon)) => ExposureUpdate::GPS(Some((lat, lon))),
-                        (Err(_), _) => Err("Unrecognised format for latitude: {split[0]}")?,
-                        (_, Err(_)) => Err("Unrecognised format for longitude: {split[0]}")?,
+                        (Err(_), _) => {
+                            Err(format!("Unrecognised format for latitude: {}", split[0]))?
+                        }
+                        (_, Err(_)) => {
+                            Err(format!("Unrecognised format for longitude: {}", split[1]))?
+                        }
                     }
                 } else {
                     Err("Invalid gps coordinates format !")?
@@ -105,7 +110,7 @@ impl TryInto<RollUpdate> for UIRollUpdate {
     }
 }
 
-fn exposure_update(index: u32, change: UIExposureUpdate) -> JsResult {
+fn exposure_update_field(index: u32, change: UIExposureUpdate) -> JsResult {
     let validated: ExposureUpdate = change.try_into()?;
 
     let storage = storage!();
@@ -121,9 +126,7 @@ fn exposure_update(index: u32, change: UIExposureUpdate) -> JsResult {
     storage.set_item(
         "data",
         &serde_json::to_string(&data).map_err(|e| format!("{e}"))?,
-    )?;
-
-    Ok(())
+    )
 }
 
 fn roll_update(change: UIRollUpdate) -> JsResult {
@@ -139,14 +142,12 @@ fn roll_update(change: UIRollUpdate) -> JsResult {
     storage.set_item(
         "data",
         &serde_json::to_string(&data).map_err(|e| format!("{e}"))?,
-    )?;
-
-    Ok(())
+    )
 }
 
 fn clone_row(index: u32) -> JsResult {
     let storage = storage!();
-    let mut data: Data = serde_json::from_str(&storage.get_item("data")?.ok_or("No data")?)
+    let data: Data = serde_json::from_str(&storage.get_item("data")?.ok_or("No data")?)
         .map_err(|e| e.to_string())?;
 
     let mut exposures: Vec<(u32, ExposureSpecificData)> = data.exposures.into_iter().collect();
@@ -162,9 +163,36 @@ fn clone_row(index: u32) -> JsResult {
     let (_, exp) = exposures[position].clone();
     let (target, _) = exposures[position + 1].clone();
     exposures[position + 1] = (target, exp.clone());
-    update_exposure_entire_ui(target, &exp)?;
+    exposure_update(target, exp)
+}
 
-    data.exposures = exposures.into_iter().collect();
+fn exposure_update(index: u32, exp: ExposureSpecificData) -> JsResult {
+    let storage = storage!();
+    let mut data: Data = serde_json::from_str(&storage.get_item("data")?.ok_or("No data")?)
+        .map_err(|e| e.to_string())?;
+
+    vec![
+        UIExposureUpdate::ShutterSpeed(exp.sspeed.clone().unwrap_or_default()),
+        UIExposureUpdate::Aperture(exp.aperture.clone().unwrap_or_default()),
+        UIExposureUpdate::Comment(exp.comment.clone().unwrap_or_default()),
+        UIExposureUpdate::Lens(exp.lens.clone().unwrap_or_default()),
+        UIExposureUpdate::Date(
+            exp.date
+                .map(|d| format!("{}", d.format("%Y-%m-%dT%H:%M:%S")))
+                .unwrap_or_default(),
+        ),
+        UIExposureUpdate::GPS(
+            exp.gps
+                .map(|(lat, lon)| format!("{lat}, {lon}"))
+                .unwrap_or_default(),
+        ),
+    ]
+    .iter()
+    .map(|c| update_exposure_ui(index, c))
+    .collect::<Result<Vec<_>, _>>()?;
+
+    data.exposures.insert(index, exp);
+
     storage.set_item(
         "data",
         &serde_json::to_string(&data).map_err(|e| e.to_string())?,
@@ -175,6 +203,7 @@ pub fn update(event: Update) -> JsResult {
     match event {
         Update::Roll(d) => roll_update(d),
         Update::Exposure(i, d) => exposure_update(i, d),
+        Update::ExposureField(i, d) => exposure_update_field(i, d),
         Update::CloneDown(i) => clone_row(i),
     }
 }

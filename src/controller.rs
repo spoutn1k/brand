@@ -1,0 +1,180 @@
+use crate::models::{Data, ExposureSpecificData};
+use crate::update_exposure_entire_ui;
+use crate::JsResult;
+use chrono::NaiveDateTime;
+use std::convert::TryInto;
+
+pub enum Update {
+    CloneDown(u32),
+    Exposure(u32, UIExposureUpdate),
+    Roll(UIRollUpdate),
+}
+
+#[derive(Debug, Clone)]
+pub enum UIRollUpdate {
+    Author(String),
+    Make(String),
+    Model(String),
+    ISO(String),
+    Film(String),
+}
+
+#[derive(Debug, Clone)]
+pub enum RollUpdate {
+    Author(Option<String>),
+    Make(Option<String>),
+    Model(Option<String>),
+    ISO(Option<String>),
+    Film(Option<String>),
+}
+
+#[derive(Debug, Clone)]
+pub enum UIExposureUpdate {
+    ShutterSpeed(String),
+    Aperture(String),
+    Lens(String),
+    Comment(String),
+    Date(String),
+    GPS(String),
+}
+
+#[derive(Debug, Clone)]
+pub enum ExposureUpdate {
+    ShutterSpeed(Option<String>),
+    Aperture(Option<String>),
+    Lens(Option<String>),
+    Comment(Option<String>),
+    Date(Option<NaiveDateTime>),
+    GPS(Option<(f64, f64)>),
+}
+
+impl TryInto<ExposureUpdate> for UIExposureUpdate {
+    type Error = wasm_bindgen::prelude::JsValue;
+
+    fn try_into(self) -> Result<ExposureUpdate, Self::Error> {
+        Ok(match self {
+            UIExposureUpdate::ShutterSpeed(s) => {
+                ExposureUpdate::ShutterSpeed(if !s.is_empty() { Some(s) } else { None })
+            }
+            UIExposureUpdate::Aperture(s) => {
+                ExposureUpdate::Aperture(if !s.is_empty() { Some(s) } else { None })
+            }
+            UIExposureUpdate::Comment(s) => {
+                ExposureUpdate::Comment(if !s.is_empty() { Some(s) } else { None })
+            }
+            UIExposureUpdate::Lens(s) => {
+                ExposureUpdate::Lens(if !s.is_empty() { Some(s) } else { None })
+            }
+            UIExposureUpdate::Date(value) => ExposureUpdate::Date(Some(
+                NaiveDateTime::parse_from_str(&value, "%Y-%m-%dT%H:%M:%S")
+                    .or(NaiveDateTime::parse_from_str(&value, "%Y-%m-%dT%H:%M"))
+                    .map_err(|e| e.to_string())?,
+            )),
+            UIExposureUpdate::GPS(value) => {
+                let split = value.split(",").collect::<Vec<_>>();
+                if split.len() == 2 {
+                    match (
+                        split[0].trim().parse::<f64>(),
+                        split[1].trim().parse::<f64>(),
+                    ) {
+                        (Ok(lat), Ok(lon)) => ExposureUpdate::GPS(Some((lat, lon))),
+                        (Err(_), _) => Err("Unrecognised format for latitude: {split[0]}")?,
+                        (_, Err(_)) => Err("Unrecognised format for longitude: {split[0]}")?,
+                    }
+                } else {
+                    Err("Invalid gps coordinates format !")?
+                }
+            }
+        })
+    }
+}
+
+impl TryInto<RollUpdate> for UIRollUpdate {
+    type Error = wasm_bindgen::prelude::JsValue;
+
+    fn try_into(self) -> Result<RollUpdate, Self::Error> {
+        Ok(match self {
+            UIRollUpdate::Author(s) => {
+                RollUpdate::Author(if !s.is_empty() { Some(s) } else { None })
+            }
+            UIRollUpdate::Make(s) => RollUpdate::Make(if !s.is_empty() { Some(s) } else { None }),
+            UIRollUpdate::Model(s) => RollUpdate::Model(if !s.is_empty() { Some(s) } else { None }),
+            UIRollUpdate::ISO(s) => RollUpdate::ISO(if !s.is_empty() { Some(s) } else { None }),
+            UIRollUpdate::Film(s) => RollUpdate::Film(if !s.is_empty() { Some(s) } else { None }),
+        })
+    }
+}
+
+fn exposure_update(index: u32, change: UIExposureUpdate) -> JsResult {
+    let validated: ExposureUpdate = change.try_into()?;
+
+    let storage = storage!();
+    let mut data: Data =
+        serde_json::from_str(&storage.get_item("data")?.ok_or("No data in storage !")?)
+            .map_err(|e| format!("{e}"))?;
+
+    data.exposures
+        .get_mut(&index)
+        .ok_or("Failed to access exposure")?
+        .update(validated);
+
+    storage.set_item(
+        "data",
+        &serde_json::to_string(&data).map_err(|e| format!("{e}"))?,
+    )?;
+
+    Ok(())
+}
+
+fn roll_update(change: UIRollUpdate) -> JsResult {
+    let validated: RollUpdate = change.try_into()?;
+
+    let storage = storage!();
+    let mut data: Data =
+        serde_json::from_str(&storage.get_item("data")?.ok_or("No data in storage !")?)
+            .map_err(|e| format!("{e}"))?;
+
+    data.roll.update(validated);
+
+    storage.set_item(
+        "data",
+        &serde_json::to_string(&data).map_err(|e| format!("{e}"))?,
+    )?;
+
+    Ok(())
+}
+
+fn clone_row(index: u32) -> JsResult {
+    let storage = storage!();
+    let mut data: Data = serde_json::from_str(&storage.get_item("data")?.ok_or("No data")?)
+        .map_err(|e| e.to_string())?;
+
+    let mut exposures: Vec<(u32, ExposureSpecificData)> = data.exposures.into_iter().collect();
+    exposures.sort_by_key(|e| e.0);
+
+    let current = exposures.iter_mut().position(|k| k.0 == index);
+
+    let position = current.ok_or("No matching exposition")?;
+    if position + 1 >= exposures.len() {
+        Err("Cannot clone last row !")?
+    }
+
+    let (_, exp) = exposures[position].clone();
+    let (target, _) = exposures[position + 1].clone();
+    exposures[position + 1] = (target, exp.clone());
+    update_exposure_entire_ui(target, &exp)?;
+
+    data.exposures = exposures.into_iter().collect();
+    storage.set_item(
+        "data",
+        &serde_json::to_string(&data).map_err(|e| e.to_string())?,
+    )
+}
+
+pub fn update(event: Update) -> JsResult {
+    match event {
+        Update::Roll(d) => roll_update(d),
+        Update::Exposure(i, d) => exposure_update(i, d),
+        Update::CloneDown(i) => clone_row(i),
+    }
+}

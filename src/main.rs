@@ -4,10 +4,13 @@ use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 
 mod models;
-use models::{Data, ExposureSpecificData, ExposureUpdate, RollData, Update};
+use models::{Data, ExposureSpecificData, RollData};
 
 #[macro_use]
 mod macros;
+
+mod controller;
+use controller::{UIExposureUpdate, UIRollUpdate, Update};
 
 type JsResult<T = ()> = Result<T, JsValue>;
 
@@ -126,64 +129,16 @@ fn setup_editor_from_files(files: &Vec<web_sys::FileSystemFileEntry>) -> JsResul
     query_id!("editor").class_list().remove_1("hidden")
 }
 
-fn roll_field_update_handler(
-    event: web_sys::InputEvent,
-    field: String,
-    storage: web_sys::Storage,
-) -> JsResult {
-    let content = event_target!(event, web_sys::HtmlInputElement).value();
-    log::info!("Updating {field} with `{content:?}`");
-
-    let mut data: Data = serde_json::from_str(&storage.get_item("data")?.ok_or("No data !")?)
-        .map_err(|e| format!("{e}"))?;
-
-    data.roll.update_field(&field, content);
-
-    storage.set_item(
-        "data",
-        &serde_json::to_string(&data).map_err(|e| format!("{e}"))?,
-    )
-}
-
-fn exposure_field_update_handler(
-    event: web_sys::InputEvent,
-    exposure: u32,
-    field: &dyn Fn(String) -> ExposureUpdate,
-    storage: web_sys::Storage,
-) -> JsResult {
-    let exposure_update = field(event_target!(event, web_sys::HtmlInputElement).value());
-    let update = Update::Exposure(exposure, exposure_update);
-    log::info!("Updating exposure {exposure} with `{:?}`", exposure_update);
-
-    let mut data: Data = serde_json::from_str(&storage.get_item("data")?.ok_or("No data !")?)
-        .map_err(|e| format!("{e}"))?;
-
-    match data.exposures.get_mut(&exposure) {
-        Some(v) => {
-            v.update_field(content);
-
-            storage.set_item(
-                "data",
-                &serde_json::to_string(&data).map_err(|e| format!("{e}"))?,
-            )?
-        }
-
-        None => log::error!("Failed to access exposure {exposure} !"),
-    };
-
-    Ok(())
-}
-
 fn set_general_handler(
-    field: String,
+    field: impl Fn(String) -> UIRollUpdate + 'static,
     input: &web_sys::Element,
-    storage: web_sys::Storage,
 ) -> JsResult {
-    let handler = Closure::<dyn Fn(_)>::new(move |i: web_sys::InputEvent| {
-        if let Err(e) = roll_field_update_handler(i, field.clone(), storage.clone()) {
-            log::error!("{e:?}");
-        }
-    });
+    let handler =
+        Closure::<dyn Fn(_) -> JsResult>::new(move |event: web_sys::InputEvent| -> JsResult {
+            controller::update(Update::Roll(field(
+                event_target!(event, web_sys::HtmlInputElement).value(),
+            )))
+        });
 
     input.add_event_listener_with_callback("input", handler.as_ref().unchecked_ref())?;
     handler.forget();
@@ -193,15 +148,16 @@ fn set_general_handler(
 
 fn set_exposure_handler(
     index: u32,
-    field: String,
+    field: impl Fn(String) -> UIExposureUpdate + 'static,
     input: &web_sys::Element,
-    storage: web_sys::Storage,
 ) -> JsResult {
-    let handler = Closure::<dyn Fn(_)>::new(move |i: web_sys::InputEvent| {
-        if let Err(e) = exposure_field_update_handler(i, index, field.clone(), storage.clone()) {
-            log::error!("{e:?}");
-        }
-    });
+    let handler =
+        Closure::<dyn Fn(_) -> JsResult>::new(move |event: web_sys::InputEvent| -> JsResult {
+            controller::update(Update::Exposure(
+                index,
+                field(event_target!(event, web_sys::HtmlInputElement).value()),
+            ))
+        });
 
     input.add_event_listener_with_callback("input", handler.as_ref().unchecked_ref())?;
     handler.forget();
@@ -221,27 +177,24 @@ fn reset_editor() -> JsResult {
 }
 
 fn setup_general_fields(data: &RollData) -> JsResult {
-    let storage = storage!();
-
     let author_input = general_input!(author, "Author", data);
     let make_input = general_input!(make, "Camera Brand", data);
     let model_input = general_input!(model, "Camera Model", data);
     let iso_input = general_input!(iso, "ISO", data);
     let description_input = general_input!(description, "Film type", data);
 
-    set_general_handler("author".into(), &author_input, storage.clone())?;
-    set_general_handler("make".into(), &make_input, storage.clone())?;
-    set_general_handler("model".into(), &model_input, storage.clone())?;
-    set_general_handler("iso".into(), &iso_input, storage.clone())?;
-    set_general_handler("description".into(), &description_input, storage.clone())?;
-
-    let reset = query_id!("editor-reset");
+    set_general_handler(UIRollUpdate::Author, &author_input)?;
+    set_general_handler(UIRollUpdate::Make, &make_input)?;
+    set_general_handler(UIRollUpdate::Model, &model_input)?;
+    set_general_handler(UIRollUpdate::ISO, &iso_input)?;
+    set_general_handler(UIRollUpdate::Film, &description_input)?;
 
     let reset_editor =
         Closure::<dyn Fn(_) -> JsResult>::new(move |_: web_sys::Event| -> JsResult {
             reset_editor()
         });
-    reset.add_event_listener_with_callback("click", reset_editor.as_ref().unchecked_ref())?;
+    query_id!("editor-reset")
+        .add_event_listener_with_callback("click", reset_editor.as_ref().unchecked_ref())?;
     reset_editor.forget();
 
     let download_tse =
@@ -258,65 +211,44 @@ fn setup_general_fields(data: &RollData) -> JsResult {
     Ok(())
 }
 
-fn update_row_html(index: u32, data: &ExposureSpecificData) -> JsResult {
-    query_id!(&format!("sspeed-input-{index}"), web_sys::HtmlInputElement)
-        .set_value(&data.sspeed.clone().unwrap_or(String::new()));
-    query_id!(
-        &format!("aperture-input-{index}"),
-        web_sys::HtmlInputElement
-    )
-    .set_value(&data.aperture.clone().unwrap_or(String::new()));
-    query_id!(&format!("lens-input-{index}"), web_sys::HtmlInputElement)
-        .set_value(&data.lens.clone().unwrap_or(String::new()));
-    query_id!(&format!("comment-input-{index}"), web_sys::HtmlInputElement)
-        .set_value(&data.comment.clone().unwrap_or(String::new()));
-    query_id!(&format!("date-input-{index}"), web_sys::HtmlInputElement).set_value(
-        &data
-            .date
-            .and_then(|d| Some(format!("{}", d.format("%Y-%m-%dT%H:%M:%S"))))
-            .unwrap_or(String::new()),
-    );
-    query_id!(&format!("gps-input-{index}"), web_sys::HtmlInputElement).set_value(
-        &data
-            .gps
-            .and_then(|(la, lo)| Some(format!("{la}, {lo}")))
-            .unwrap_or(String::new()),
-    );
+fn update_exposure_ui(index: u32, data: &UIExposureUpdate) -> JsResult {
+    let (id, contents) = match data {
+        UIExposureUpdate::ShutterSpeed(value) => (&format!("sspeed-input-{index}"), value),
+        UIExposureUpdate::Aperture(value) => (&format!("aperture-input-{index}"), value),
+        UIExposureUpdate::Comment(value) => (&format!("comment-input-{index}"), value),
+        UIExposureUpdate::Date(value) => (&format!("date-input-{index}"), value),
+        UIExposureUpdate::Lens(value) => (&format!("lens-input-{index}"), value),
+        UIExposureUpdate::GPS(value) => (&format!("gps-input-{index}"), value),
+    };
 
+    query_id!(id, web_sys::HtmlInputElement).set_value(contents);
     Ok(())
 }
 
-fn clone_row(index: u32, storage: web_sys::Storage) -> JsResult {
-    let mut data: Data = serde_json::from_str(&storage.get_item("data")?.ok_or("No data")?)
-        .map_err(|e| e.to_string())?;
-
-    let mut exposures: Vec<(u32, ExposureSpecificData)> = data.exposures.into_iter().collect();
-    exposures.sort_by_key(|e| e.0);
-
-    let current = exposures.iter_mut().position(|k| k.0 == index);
-
-    if let Some(position) = current {
-        if position + 1 < exposures.len() {
-            let (_, data) = exposures[position].clone();
-            let (target, _) = exposures[position + 1].clone();
-            exposures[position + 1] = (target, data.clone());
-            update_row_html(target, &data)?;
-        }
-    }
-
-    data.exposures = exposures.into_iter().collect();
-
-    storage.set_item(
-        "data",
-        &serde_json::to_string(&data).map_err(|e| e.to_string())?,
-    )?;
-
-    Ok(())
+fn update_exposure_entire_ui(index: u32, data: &ExposureSpecificData) -> JsResult<Vec<()>> {
+    vec![
+        UIExposureUpdate::ShutterSpeed(data.sspeed.clone().unwrap_or_default()),
+        UIExposureUpdate::Aperture(data.aperture.clone().unwrap_or_default()),
+        UIExposureUpdate::Comment(data.comment.clone().unwrap_or_default()),
+        UIExposureUpdate::Lens(data.lens.clone().unwrap_or_default()),
+        UIExposureUpdate::Date(
+            data.date
+                .map(|d| format!("{}", d.format("%Y-%m-%dT%H:%M:%S")))
+                .unwrap_or_default(),
+        ),
+        UIExposureUpdate::GPS(
+            data.gps
+                .map(|(lat, lon)| format!("{lat}, {lon}"))
+                .unwrap_or_default(),
+        ),
+    ]
+    .iter()
+    .map(|c| update_exposure_ui(index, c))
+    .collect()
 }
 
 fn create_row(index: u32) -> JsResult {
     let table = query_selector!("table#exposures");
-    let storage = storage!();
 
     let row = el!("tr");
     row.set_id(&format!("exposure-{index}"));
@@ -363,19 +295,21 @@ fn create_row(index: u32) -> JsResult {
     clone_down.set_attribute("type", "button")?;
     clone_down.set_value("Clone below");
 
-    set_exposure_handler(index, "sspeed".into(), &sspeed_input, storage.clone())?;
-    set_exposure_handler(index, "aperture".into(), &aperture_input, storage.clone())?;
-    set_exposure_handler(index, "lens".into(), &lens_input, storage.clone())?;
-    set_exposure_handler(index, "comment".into(), &comment_input, storage.clone())?;
-    set_exposure_handler(index, "date".into(), &date_input, storage.clone())?;
-    set_exposure_handler(index, "gps".into(), &gps_input, storage.clone())?;
+    set_exposure_handler(index, UIExposureUpdate::ShutterSpeed, &sspeed_input)?;
+    set_exposure_handler(index, UIExposureUpdate::Aperture, &aperture_input)?;
+    set_exposure_handler(index, UIExposureUpdate::Lens, &lens_input)?;
+    set_exposure_handler(index, UIExposureUpdate::Comment, &comment_input)?;
+    set_exposure_handler(index, UIExposureUpdate::Date, &date_input)?;
+    set_exposure_handler(index, UIExposureUpdate::GPS, &gps_input)?;
 
     {
-        let storage = storage.clone();
         let coords_select =
             Closure::<dyn Fn(_) -> JsResult>::new(move |_: web_sys::Event| -> JsResult {
                 let data: Data = serde_json::from_str(
-                    &storage.clone().get_item("data")?.ok_or("No data found !")?,
+                    &storage!()
+                        .clone()
+                        .get_item("data")?
+                        .ok_or("No data found !")?,
                 )
                 .map_err(|e| e.to_string())?;
 
@@ -399,7 +333,7 @@ fn create_row(index: u32) -> JsResult {
 
     let clone_down_action =
         Closure::<dyn Fn(_) -> JsResult>::new(move |_: web_sys::Event| -> JsResult {
-            clone_row(index, storage.clone())
+            controller::update(Update::CloneDown(index))
         });
     clone_down
         .add_event_listener_with_callback("click", clone_down_action.as_ref().unchecked_ref())?;
@@ -425,27 +359,9 @@ fn create_row(index: u32) -> JsResult {
 
 #[wasm_bindgen]
 pub fn update_coords(index: u32, lat: f64, lon: f64) -> JsResult {
-    log::debug!("Updating coords for exposure {index}: {lat} / {lon}!");
-
-    let storage = storage!();
-
-    let mut data: Data = serde_json::from_str(&storage.get_item("data")?.ok_or("No data")?)
-        .map_err(|e| e.to_string())?;
-
-    data.exposures
-        .get_mut(&index)
-        .ok_or("Failed to access exposure")?
-        .gps = Some((lat, lon));
-
-    storage.set_item(
-        "data",
-        &serde_json::to_string(&data).map_err(|e| e.to_string())?,
-    )?;
-
-    query_selector!(&format!("#gps-input-{index}"), web_sys::HtmlInputElement)
-        .set_value(&format!("{lat}, {lon}"));
-
-    Ok(())
+    let change = UIExposureUpdate::GPS(format!("{lat}, {lon}"));
+    update_exposure_ui(index, &change)?;
+    controller::update(Update::Exposure(index, change))
 }
 
 fn setup_drag_drop(photo_selector: &web_sys::HtmlInputElement) -> JsResult {
@@ -516,7 +432,7 @@ fn setup_editor_from_data(contents: &Data) -> JsResult {
 
     for (index, data) in exposures {
         create_row(*index)?;
-        update_row_html(*index, data)?;
+        update_exposure_entire_ui(*index, data)?;
     }
 
     storage!().set_item(
@@ -539,7 +455,9 @@ fn main() -> JsResult {
     let storage = storage!();
     if let Some(data) = storage.get_item("data")? {
         let data: Data = serde_json::from_str(&data).map_err(|e| format!("{e}"))?;
-        setup_editor_from_data(&data)?
+        if let Err(e) = setup_editor_from_data(&data) {
+            log::error!("{e:?}");
+        }
     }
 
     Ok(())

@@ -2,6 +2,8 @@ use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use crate::controller::{ExposureUpdate, RollUpdate};
+
 mod tse_date_format {
     use chrono::NaiveDateTime;
     use serde::{self, Deserialize, Deserializer, Serializer};
@@ -60,14 +62,13 @@ pub struct ExposureSpecificData {
 }
 
 impl RollData {
-    pub fn update_field(&mut self, key: &str, value: String) {
-        match key {
-            "author" => self.author = Some(value),
-            "make" => self.make = Some(value),
-            "model" => self.model = Some(value),
-            "iso" => self.iso = Some(value),
-            "description" => self.description = Some(value),
-            _ => todo!(),
+    pub fn update(&mut self, change: RollUpdate) {
+        match change {
+            RollUpdate::Author(value) => self.author = value,
+            RollUpdate::Film(value) => self.description = value,
+            RollUpdate::ISO(value) => self.iso = value,
+            RollUpdate::Make(value) => self.make = value,
+            RollUpdate::Model(value) => self.model = value,
         }
     }
 
@@ -92,96 +93,15 @@ impl RollData {
     }
 }
 
-enum Update {
-    Exposure(u32, ExposureUpdate),
-}
-
-#[derive(Debug)]
-pub enum ExposureUpdate {
-    ShutterSpeed(String),
-    Aperture(String),
-    Lens(String),
-    Comment(String),
-    Date(String),
-    GPS(String),
-}
-
 impl ExposureSpecificData {
-    pub fn update_field(&mut self, key: &str, value: String) {
-        match key {
-            "sspeed" => self.sspeed = Some(value),
-            "aperture" => self.aperture = Some(value),
-            "lens" => self.lens = Some(value),
-            "comment" => self.comment = Some(value),
-            "gps" => {
-                self.gps = {
-                    let split = value.split(",").collect::<Vec<_>>();
-                    if split.len() == 2 {
-                        match (
-                            split[0].trim().parse::<f64>(),
-                            split[1].trim().parse::<f64>(),
-                        ) {
-                            (Ok(lat), Ok(lon)) => Some((lat, lon)),
-                            (Err(e), _) => {
-                                log::error!("lat error: {e}");
-                                None
-                            }
-                            (_, Err(e)) => {
-                                log::error!("lon error: {e}");
-                                None
-                            }
-                        }
-                    } else {
-                        log::error!("Invalid gps coordinates format !");
-                        None
-                    }
-                }
-            }
-            "date" => {
-                self.date = NaiveDateTime::parse_from_str(&value, "%Y-%m-%dT%H:%M:%S")
-                    .or(NaiveDateTime::parse_from_str(&value, "%Y-%m-%dT%H:%M"))
-                    .ok()
-            }
-            _ => todo!(),
-        }
-    }
-
-    pub fn update(&mut self, change: &ExposureUpdate) {
+    pub fn update(&mut self, change: ExposureUpdate) {
         match change {
-            "sspeed" => self.sspeed = Some(value),
-            "aperture" => self.aperture = Some(value),
-            "lens" => self.lens = Some(value),
-            "comment" => self.comment = Some(value),
-            "gps" => {
-                self.gps = {
-                    let split = value.split(",").collect::<Vec<_>>();
-                    if split.len() == 2 {
-                        match (
-                            split[0].trim().parse::<f64>(),
-                            split[1].trim().parse::<f64>(),
-                        ) {
-                            (Ok(lat), Ok(lon)) => Some((lat, lon)),
-                            (Err(e), _) => {
-                                log::error!("lat error: {e}");
-                                None
-                            }
-                            (_, Err(e)) => {
-                                log::error!("lon error: {e}");
-                                None
-                            }
-                        }
-                    } else {
-                        log::error!("Invalid gps coordinates format !");
-                        None
-                    }
-                }
-            }
-            "date" => {
-                self.date = NaiveDateTime::parse_from_str(&value, "%Y-%m-%dT%H:%M:%S")
-                    .or(NaiveDateTime::parse_from_str(&value, "%Y-%m-%dT%H:%M"))
-                    .ok()
-            }
-            _ => todo!(),
+            ExposureUpdate::ShutterSpeed(value) => self.sspeed = value,
+            ExposureUpdate::Aperture(value) => self.aperture = value,
+            ExposureUpdate::Comment(value) => self.comment = value,
+            ExposureUpdate::Lens(value) => self.lens = value,
+            ExposureUpdate::Date(value) => self.date = value,
+            ExposureUpdate::GPS(value) => self.gps = value,
         }
     }
 

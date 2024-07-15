@@ -92,9 +92,62 @@ impl RollData {
     }
 }
 
+enum Update {
+    Exposure(u32, ExposureUpdate),
+}
+
+#[derive(Debug)]
+pub enum ExposureUpdate {
+    ShutterSpeed(String),
+    Aperture(String),
+    Lens(String),
+    Comment(String),
+    Date(String),
+    GPS(String),
+}
+
 impl ExposureSpecificData {
     pub fn update_field(&mut self, key: &str, value: String) {
         match key {
+            "sspeed" => self.sspeed = Some(value),
+            "aperture" => self.aperture = Some(value),
+            "lens" => self.lens = Some(value),
+            "comment" => self.comment = Some(value),
+            "gps" => {
+                self.gps = {
+                    let split = value.split(",").collect::<Vec<_>>();
+                    if split.len() == 2 {
+                        match (
+                            split[0].trim().parse::<f64>(),
+                            split[1].trim().parse::<f64>(),
+                        ) {
+                            (Ok(lat), Ok(lon)) => Some((lat, lon)),
+                            (Err(e), _) => {
+                                log::error!("lat error: {e}");
+                                None
+                            }
+                            (_, Err(e)) => {
+                                log::error!("lon error: {e}");
+                                None
+                            }
+                        }
+                    } else {
+                        log::error!("Invalid gps coordinates format !");
+                        None
+                    }
+                }
+            }
+            "date" => {
+                self.date = NaiveDateTime::parse_from_str(&value, "%Y-%m-%dT%H:%M:%S")
+                    .or(NaiveDateTime::parse_from_str(&value, "%Y-%m-%dT%H:%M"))
+                    .ok()
+            }
+            _ => todo!(),
+        }
+    }
+
+    pub fn update(&mut self, change: &ExposureUpdate) {
+        match change {
             "sspeed" => self.sspeed = Some(value),
             "aperture" => self.aperture = Some(value),
             "lens" => self.lens = Some(value),

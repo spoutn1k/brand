@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 
 mod models;
-use models::{Data, ExposureSpecificData, RollData};
+use models::{Data, ExposureSpecificData, ExposureUpdate, RollData, Update};
 
 #[macro_use]
 mod macros;
@@ -148,18 +148,19 @@ fn roll_field_update_handler(
 fn exposure_field_update_handler(
     event: web_sys::InputEvent,
     exposure: u32,
-    field: String,
+    field: &dyn Fn(String) -> ExposureUpdate,
     storage: web_sys::Storage,
 ) -> JsResult {
-    let content = event_target!(event, web_sys::HtmlInputElement).value();
-    log::info!("Updating {field} with `{content:?}`");
+    let exposure_update = field(event_target!(event, web_sys::HtmlInputElement).value());
+    let update = Update::Exposure(exposure, exposure_update);
+    log::info!("Updating exposure {exposure} with `{:?}`", exposure_update);
 
     let mut data: Data = serde_json::from_str(&storage.get_item("data")?.ok_or("No data !")?)
         .map_err(|e| format!("{e}"))?;
 
     match data.exposures.get_mut(&exposure) {
         Some(v) => {
-            v.update_field(&field, content);
+            v.update_field(content);
 
             storage.set_item(
                 "data",

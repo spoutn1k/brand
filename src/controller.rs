@@ -6,6 +6,7 @@ use std::convert::TryInto;
 
 pub enum Update {
     CloneDown(u32),
+    SelectExposure(u32),
     Exposure(u32, ExposureSpecificData),
     ExposureField(u32, UIExposureUpdate),
     Roll(UIRollUpdate),
@@ -111,17 +112,27 @@ impl TryInto<RollUpdate> for UIRollUpdate {
 }
 
 fn exposure_update_field(index: u32, change: UIExposureUpdate) -> JsResult {
-    let validated: ExposureUpdate = change.try_into()?;
+    let validated: ExposureUpdate = change.clone().try_into()?;
 
     let storage = storage!();
     let mut data: Data =
         serde_json::from_str(&storage.get_item("data")?.ok_or("No data in storage !")?)
             .map_err(|e| format!("{e}"))?;
+    let mut selection: std::collections::HashSet<u32> =
+        serde_json::from_str(&storage!().get_item("selected")?.unwrap_or("[]".into()))
+            .map_err(|e| e.to_string())?;
+    selection.insert(index);
 
-    data.exposures
-        .get_mut(&index)
-        .ok_or("Failed to access exposure")?
-        .update(validated);
+    for target in selection {
+        data.exposures
+            .get_mut(&target)
+            .ok_or("Failed to access exposure")?
+            .update(validated.clone());
+
+        if target != index {
+            update_exposure_ui(target, &change)?;
+        }
+    }
 
     storage.set_item(
         "data",
@@ -199,11 +210,30 @@ fn exposure_update(index: u32, exp: ExposureSpecificData) -> JsResult {
     )
 }
 
+fn toggle_selection(index: u32) -> JsResult {
+    let storage = storage!();
+    let mut selection: Vec<u32> =
+        serde_json::from_str(&storage.get_item("selected")?.unwrap_or("[]".into()))
+            .map_err(|e| e.to_string())?;
+
+    if let Some(position) = selection.iter().position(|e| *e == index) {
+        selection.swap_remove(position);
+    } else {
+        selection.push(index);
+    }
+
+    storage.set_item(
+        "selected",
+        &serde_json::to_string(&selection).map_err(|e| e.to_string())?,
+    )
+}
+
 pub fn update(event: Update) -> JsResult {
     match event {
         Update::Roll(d) => roll_update(d),
         Update::Exposure(i, d) => exposure_update(i, d),
         Update::ExposureField(i, d) => exposure_update_field(i, d),
         Update::CloneDown(i) => clone_row(i),
+        Update::SelectExposure(e) => toggle_selection(e),
     }
 }

@@ -113,7 +113,7 @@ fn setup_editor_from_files(files: &Vec<web_sys::FileSystemFileEntry>) -> JsResul
     for (index, entries) in index.into_iter() {
         let entry = entries.first().unwrap().to_owned();
 
-        create_row(index)?;
+        create_row(index, false)?;
         let file_load =
             Closure::<dyn Fn(_) -> JsResult>::new(move |f: web_sys::File| -> JsResult {
                 read_file(f, query_id!(&format!("exposure-{index}-preview")))
@@ -211,65 +211,75 @@ fn setup_roll_fields(data: &RollData) -> JsResult {
 
 fn update_exposure_ui(index: u32, data: &UIExposureUpdate) -> JsResult {
     let (id, contents) = match data {
-        UIExposureUpdate::ShutterSpeed(value) => (&format!("sspeed-input-{index}"), value),
-        UIExposureUpdate::Aperture(value) => (&format!("aperture-input-{index}"), value),
-        UIExposureUpdate::Comment(value) => (&format!("comment-input-{index}"), value),
-        UIExposureUpdate::Date(value) => (&format!("date-input-{index}"), value),
-        UIExposureUpdate::Lens(value) => (&format!("lens-input-{index}"), value),
-        UIExposureUpdate::GPS(value) => (&format!("gps-input-{index}"), value),
+        UIExposureUpdate::ShutterSpeed(value) => (&format!("exposure-input-sspeed-{index}"), value),
+        UIExposureUpdate::Aperture(value) => (&format!("exposure-input-aperture-{index}"), value),
+        UIExposureUpdate::Comment(value) => (&format!("exposure-input-comment-{index}"), value),
+        UIExposureUpdate::Date(value) => (&format!("exposure-input-date-{index}"), value),
+        UIExposureUpdate::Lens(value) => (&format!("exposure-input-lens-{index}"), value),
+        UIExposureUpdate::GPS(value) => (&format!("exposure-input-gps-{index}"), value),
     };
 
     query_id!(id, web_sys::HtmlInputElement).set_value(contents);
     Ok(())
 }
 
-fn create_row(index: u32) -> JsResult {
+fn create_row(index: u32, selected: bool) -> JsResult {
     let table = query_selector!("table#exposures");
 
     let row = el!("tr");
     row.set_id(&format!("exposure-{index}"));
+    if selected {
+        row.class_list().add_1("selected")?;
+    }
+    let select = el!("td");
+    select.set_id(&format!("exposure-select-{index}"));
     let icon = el!("td");
-    icon.set_id(&format!("image-{index}"));
+    icon.set_id(&format!("exposure-image-{index}"));
     let sspeed = el!("td");
-    sspeed.set_id(&format!("field-sspeed-{index}"));
+    sspeed.set_id(&format!("exposure-field-sspeed-{index}"));
     let aperture = el!("td");
-    aperture.set_id(&format!("field-aperture-{index}"));
+    aperture.set_id(&format!("exposure-field-aperture-{index}"));
     let lens = el!("td");
-    lens.set_id(&format!("field-lens-{index}"));
+    lens.set_id(&format!("exposure-field-lens-{index}"));
     let comment = el!("td");
-    comment.set_id(&format!("field-comment-{index}"));
+    comment.set_id(&format!("exposure-field-comment-{index}"));
     let date = el!("td");
-    date.set_id(&format!("field-date-{index}"));
+    date.set_id(&format!("exposure-field-date-{index}"));
     let gps = el!("td");
-    gps.set_id(&format!("field-gps-{index}"));
+    gps.set_id(&format!("exposure-field-gps-{index}"));
     let options = el!("td");
-    options.set_id(&format!("options-{index}"));
+    options.set_id(&format!("exposure-options-{index}"));
+
+    let select_button = el!("input", web_sys::HtmlInputElement);
+    select_button.set_attribute("type", "checkbox")?;
+    if selected {
+        select_button.set_attribute("checked", "checked")?;
+    }
+    select_button.set_id(&format!("exposure-input-select-{index}"));
 
     let sspeed_input = el!("input");
-    sspeed_input.set_id(&format!("sspeed-input-{index}"));
+    sspeed_input.set_id(&format!("exposure-input-sspeed-{index}"));
     sspeed_input.set_attribute("placeholder", "Shutter Speed")?;
     let aperture_input = el!("input");
-    aperture_input.set_id(&format!("aperture-input-{index}"));
+    aperture_input.set_id(&format!("exposure-input-aperture-{index}"));
     aperture_input.set_attribute("placeholder", "Aperture")?;
     let lens_input = el!("input");
-    lens_input.set_id(&format!("lens-input-{index}"));
+    lens_input.set_id(&format!("exposure-input-lens-{index}"));
     lens_input.set_attribute("placeholder", "Focal length")?;
     let comment_input = el!("input");
-    comment_input.set_id(&format!("comment-input-{index}"));
+    comment_input.set_id(&format!("exposure-input-comment-{index}"));
     comment_input.set_attribute("placeholder", "Title")?;
     let date_input = el!("input");
-    date_input.set_id(&format!("date-input-{index}"));
+    date_input.set_id(&format!("exposure-input-date-{index}"));
     date_input.set_attribute("type", "datetime-local")?;
     date_input.set_attribute("step", "1")?;
     let gps_input = el!("input");
-    gps_input.set_id(&format!("gps-input-{index}"));
+    gps_input.set_id(&format!("exposure-input-gps-{index}"));
     gps_input.set_attribute("placeholder", "GPS coordinates")?;
-    let gps_select = el!("input", web_sys::HtmlInputElement);
-    gps_select.set_attribute("type", "button")?;
-    gps_select.set_value("Map");
-    let clone_down = el!("input", web_sys::HtmlInputElement);
-    clone_down.set_attribute("type", "button")?;
-    clone_down.set_value("Clone below");
+    let gps_select = el!("button");
+    gps_select.set_inner_html("Map");
+    let clone_down = el!("button");
+    clone_down.set_inner_html("Clone below");
 
     set_exposure_handler(index, UIExposureUpdate::ShutterSpeed, &sspeed_input)?;
     set_exposure_handler(index, UIExposureUpdate::Aperture, &aperture_input)?;
@@ -277,6 +287,14 @@ fn create_row(index: u32) -> JsResult {
     set_exposure_handler(index, UIExposureUpdate::Comment, &comment_input)?;
     set_exposure_handler(index, UIExposureUpdate::Date, &date_input)?;
     set_exposure_handler(index, UIExposureUpdate::GPS, &gps_input)?;
+
+    let select_action =
+        Closure::<dyn Fn(_) -> JsResult>::new(move |_: web_sys::Event| -> JsResult {
+            controller::update(Update::SelectExposure(index))
+        });
+    select_button
+        .add_event_listener_with_callback("click", select_action.as_ref().unchecked_ref())?;
+    select_action.forget();
 
     {
         let coords_select =
@@ -315,6 +333,7 @@ fn create_row(index: u32) -> JsResult {
         .add_event_listener_with_callback("click", clone_down_action.as_ref().unchecked_ref())?;
     clone_down_action.forget();
 
+    select.append_with_node_1(&select_button)?;
     sspeed.append_with_node_1(&sspeed_input)?;
     aperture.append_with_node_1(&aperture_input)?;
     lens.append_with_node_1(&lens_input)?;
@@ -328,7 +347,7 @@ fn create_row(index: u32) -> JsResult {
     image.set_attribute("alt", &format!("Exposure number {}", index))?;
     icon.append_with_node_1(&image)?;
 
-    row.append_with_node_6(&icon, &sspeed, &aperture, &lens, &comment, &date)?;
+    row.append_with_node_7(&select, &icon, &sspeed, &aperture, &lens, &comment, &date)?;
     row.append_with_node_2(&gps, &options)?;
     table.append_with_node_1(&row)
 }
@@ -402,12 +421,15 @@ fn download_file(filename: String, contents: String) -> JsResult {
 
 fn setup_editor_from_data(contents: &Data) -> JsResult {
     setup_roll_fields(&contents.roll)?;
+    let selection: Vec<u32> =
+        serde_json::from_str(&storage!().get_item("selected")?.unwrap_or("[]".into()))
+            .map_err(|e| e.to_string())?;
 
     let mut exposures: Vec<(&u32, &ExposureSpecificData)> = contents.exposures.iter().collect();
     exposures.sort_by_key(|e| e.0);
 
     for (index, data) in exposures {
-        create_row(*index)?;
+        create_row(*index, selection.contains(index))?;
         controller::update(Update::Exposure(*index, data.clone()))?;
     }
 

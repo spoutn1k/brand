@@ -64,3 +64,13 @@ macro_rules! el {
         el!($tag).dyn_into::<$type>()?
     };
 }
+
+macro_rules! event_target {
+    ($event:expr) => {
+        $event.target().ok_or("No target for event !")?
+    };
+
+    ($event:expr, $type:ty) => {
+        event_target!($event).dyn_into::<$type>()?
+    };
+}

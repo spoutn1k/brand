@@ -41,20 +41,13 @@ fn read_file(file: web_sys::File, target: web_sys::Element) -> JsResult {
     reader.read_as_array_buffer(&file)?;
 
     let r = reader.clone();
-    let closure = Closure::<dyn Fn(_)>::new(move |_: web_sys::Event| {
-        match r.result() {
-            Ok(buffer) => {
-                let data = js_sys::Uint8Array::new(&buffer);
+    let closure = Closure::<dyn Fn(_) -> JsResult>::new(move |_: web_sys::Event| -> JsResult {
+        let buffer = r.result()?;
+        let data = js_sys::Uint8Array::new(&buffer);
 
-                // Create a Rust slice from the Uint8Array
-                let target = target.clone();
-                if let Err(e) = embed_file(&data.to_vec(), &target) {
-                    log::error!("Error embedding file: {e:?}");
-                }
-            }
-
-            Err(e) => log::error!("Failed to access result: {}", e.as_string().unwrap()),
-        }
+        // Create a Rust slice from the Uint8Array
+        let target = target.clone();
+        embed_file(&data.to_vec(), &target)
     });
 
     reader.set_onloadend(Some(&closure.as_ref().unchecked_ref()));
@@ -138,11 +131,7 @@ fn roll_field_update_handler(
     field: String,
     storage: web_sys::Storage,
 ) -> JsResult {
-    let content = event
-        .target()
-        .ok_or("No target for event !")?
-        .dyn_into::<web_sys::HtmlInputElement>()?
-        .value();
+    let content = event_target!(event, web_sys::HtmlInputElement).value();
     log::info!("Updating {field} with `{content:?}`");
 
     let mut data: Data = serde_json::from_str(&storage.get_item("data")?.ok_or("No data !")?)
@@ -162,11 +151,7 @@ fn exposure_field_update_handler(
     field: String,
     storage: web_sys::Storage,
 ) -> JsResult {
-    let content = event
-        .target()
-        .ok_or("No target for event !")?
-        .dyn_into::<web_sys::HtmlInputElement>()?
-        .value();
+    let content = event_target!(event, web_sys::HtmlInputElement).value();
     log::info!("Updating {field} with `{content:?}`");
 
     let mut data: Data = serde_json::from_str(&storage.get_item("data")?.ok_or("No data !")?)
@@ -220,23 +205,6 @@ fn set_exposure_handler(
     input.add_event_listener_with_callback("input", handler.as_ref().unchecked_ref())?;
     handler.forget();
 
-    Ok(())
-}
-
-fn map_input(index: u32) -> JsResult {
-    let data: Data = serde_json::from_str(&storage!().get_item("data")?.ok_or("No data found !")?)
-        .map_err(|e| e.to_string())?;
-
-    if let Some((lat, lon)) = data
-        .exposures
-        .get(&index)
-        .ok_or("Failed to access exposure")?
-        .gps
-    {
-        set_marker(lat, lon);
-    }
-
-    prompt_coords(index);
     Ok(())
 }
 
@@ -352,14 +320,21 @@ fn create_row(index: u32) -> JsResult {
     let row = el!("tr");
     row.set_id(&format!("exposure-{index}"));
     let icon = el!("td");
-
+    icon.set_id(&format!("image-{index}"));
     let sspeed = el!("td");
+    sspeed.set_id(&format!("field-sspeed-{index}"));
     let aperture = el!("td");
+    aperture.set_id(&format!("field-aperture-{index}"));
     let lens = el!("td");
+    lens.set_id(&format!("field-lens-{index}"));
     let comment = el!("td");
+    comment.set_id(&format!("field-comment-{index}"));
     let date = el!("td");
+    date.set_id(&format!("field-date-{index}"));
     let gps = el!("td");
+    gps.set_id(&format!("field-gps-{index}"));
     let options = el!("td");
+    options.set_id(&format!("options-{index}"));
 
     let sspeed_input = el!("input");
     sspeed_input.set_id(&format!("sspeed-input-{index}"));
@@ -394,19 +369,37 @@ fn create_row(index: u32) -> JsResult {
     set_exposure_handler(index, "date".into(), &date_input, storage.clone())?;
     set_exposure_handler(index, "gps".into(), &gps_input, storage.clone())?;
 
-    let coords_select = Closure::<dyn Fn(_)>::new(move |_: web_sys::Event| {
-        if let Err(e) = map_input(index) {
-            log::error!("{e:?}");
-        }
-    });
-    gps_select.add_event_listener_with_callback("click", coords_select.as_ref().unchecked_ref())?;
-    coords_select.forget();
+    {
+        let storage = storage.clone();
+        let coords_select =
+            Closure::<dyn Fn(_) -> JsResult>::new(move |_: web_sys::Event| -> JsResult {
+                let data: Data = serde_json::from_str(
+                    &storage.clone().get_item("data")?.ok_or("No data found !")?,
+                )
+                .map_err(|e| e.to_string())?;
 
-    let clone_down_action = Closure::<dyn Fn(_)>::new(move |_: web_sys::Event| {
-        if let Err(e) = clone_row(index, storage.clone()) {
-            log::error!("{e:?}");
-        }
-    });
+                if let Some((lat, lon)) = data
+                    .exposures
+                    .get(&index)
+                    .ok_or("Failed to access exposure")?
+                    .gps
+                {
+                    set_marker(lat, lon);
+                }
+
+                prompt_coords(index);
+
+                Ok(())
+            });
+        gps_select
+            .add_event_listener_with_callback("click", coords_select.as_ref().unchecked_ref())?;
+        coords_select.forget();
+    }
+
+    let clone_down_action =
+        Closure::<dyn Fn(_) -> JsResult>::new(move |_: web_sys::Event| -> JsResult {
+            clone_row(index, storage.clone())
+        });
     clone_down
         .add_event_listener_with_callback("click", clone_down_action.as_ref().unchecked_ref())?;
     clone_down_action.forget();
@@ -457,10 +450,7 @@ pub fn update_coords(index: u32, lat: f64, lon: f64) -> JsResult {
 fn setup_drag_drop(photo_selector: &web_sys::HtmlInputElement) -> JsResult {
     let closure =
         Closure::<dyn Fn(_) -> JsResult>::new(move |event: web_sys::InputEvent| -> JsResult {
-            let files = event
-                .target()
-                .ok_or("No target for input event ?")?
-                .dyn_into::<web_sys::HtmlInputElement>()?
+            let files = event_target!(event, web_sys::HtmlInputElement)
                 .webkit_entries()
                 .iter()
                 .map(|f| f.dyn_into::<web_sys::FileSystemFileEntry>())

@@ -2,7 +2,7 @@ use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-mod my_date_format {
+mod tse_date_format {
     use chrono::NaiveDateTime;
     use serde::{self, Deserialize, Deserializer, Serializer};
     use serde_with::{DeserializeAs, SerializeAs};
@@ -54,7 +54,7 @@ pub struct ExposureSpecificData {
     pub aperture: Option<String>,
     pub lens: Option<String>,
     pub comment: Option<String>,
-    #[serde_as(as = "Option<my_date_format::Naive>")]
+    #[serde_as(as = "Option<tse_date_format::Naive>")]
     pub date: Option<NaiveDateTime>,
     pub gps: Option<(f64, f64)>,
 }

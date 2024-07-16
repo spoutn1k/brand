@@ -138,6 +138,8 @@ fn exposure_update_field(index: u32, change: UIExposureUpdate) -> JsResult {
         }
     }
 
+    update_exposure_ui(index, &change)?;
+
     storage.set_item(
         "data",
         &serde_json::to_string(&data).map_err(|e| format!("{e}"))?,
@@ -249,11 +251,7 @@ fn manage_selection<F: Fn(bool) -> bool>(choice: F) -> JsResult {
         .filter_map(|i| {
             let new = choice(selection.contains(i));
             set_exposure_selection(*i, new).ok();
-            if new {
-                Some(i)
-            } else {
-                None
-            }
+            new.then_some(i)
         })
         .collect::<Vec<_>>();
 

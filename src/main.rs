@@ -49,17 +49,14 @@ fn read_file(file: web_sys::File, target: web_sys::Element) -> JsResult {
         let data = js_sys::Uint8Array::new(&buffer);
 
         // Create a Rust slice from the Uint8Array
-        let target = target.clone();
-        embed_file(&data.to_vec(), &target)
+        embed_file(&data.to_vec(), &target.clone())
     });
-
     reader.set_onloadend(Some(&closure.as_ref().unchecked_ref()));
     closure.forget();
 
     let error_handler = Closure::<dyn Fn(_)>::new(move |_: web_sys::Event| {
         log::error!("Failed to read file !");
     });
-
     reader.set_onerror(Some(&error_handler.as_ref().unchecked_ref()));
     error_handler.forget();
 
@@ -111,7 +108,7 @@ fn setup_editor_from_files(files: &Vec<web_sys::FileSystemFileEntry>) -> JsResul
     )?;
 
     for (index, entries) in index.into_iter() {
-        let entry = entries.first().unwrap().to_owned();
+        let entry = entries.first().ok_or("No entries")?.to_owned();
 
         create_row(index, false)?;
         let file_load =
@@ -270,8 +267,9 @@ fn create_row(index: u32, selected: bool) -> JsResult {
     if selected {
         row.class_list().add_1("selected")?;
     }
-    let select = el!("td");
+    let select = el!("td", web_sys::HtmlElement);
     select.set_id(&format!("exposure-select-{index}"));
+    select.style().set_property("display", "none")?;
     let icon = el!("td");
     icon.set_id(&format!("exposure-image-{index}"));
     let sspeed = el!("td");
@@ -286,8 +284,6 @@ fn create_row(index: u32, selected: bool) -> JsResult {
     date.set_id(&format!("exposure-field-date-{index}"));
     let gps = el!("td");
     gps.set_id(&format!("exposure-field-gps-{index}"));
-    let options = el!("td");
-    options.set_id(&format!("exposure-options-{index}"));
 
     let select_button = el!("input", web_sys::HtmlInputElement);
     select_button.set_attribute("type", "checkbox")?;
@@ -317,8 +313,6 @@ fn create_row(index: u32, selected: bool) -> JsResult {
     gps_input.set_attribute("placeholder", "GPS coordinates")?;
     let gps_select = el!("button");
     gps_select.set_inner_html("Map");
-    let clone_down = el!("button");
-    clone_down.set_inner_html("Clone below");
 
     set_exposure_handler(index, UIExposureUpdate::ShutterSpeed, &sspeed_input)?;
     set_exposure_handler(index, UIExposureUpdate::Aperture, &aperture_input)?;
@@ -331,8 +325,7 @@ fn create_row(index: u32, selected: bool) -> JsResult {
         Closure::<dyn Fn(_) -> JsResult>::new(move |_: web_sys::Event| -> JsResult {
             controller::update(Update::SelectExposure(index))
         });
-    select_button
-        .add_event_listener_with_callback("click", select_action.as_ref().unchecked_ref())?;
+    icon.add_event_listener_with_callback("click", select_action.as_ref().unchecked_ref())?;
     select_action.forget();
 
     {
@@ -364,14 +357,6 @@ fn create_row(index: u32, selected: bool) -> JsResult {
         coords_select.forget();
     }
 
-    let clone_down_action =
-        Closure::<dyn Fn(_) -> JsResult>::new(move |_: web_sys::Event| -> JsResult {
-            controller::update(Update::CloneDown(index))
-        });
-    clone_down
-        .add_event_listener_with_callback("click", clone_down_action.as_ref().unchecked_ref())?;
-    clone_down_action.forget();
-
     select.append_with_node_1(&select_button)?;
     sspeed.append_with_node_1(&sspeed_input)?;
     aperture.append_with_node_1(&aperture_input)?;
@@ -379,7 +364,6 @@ fn create_row(index: u32, selected: bool) -> JsResult {
     comment.append_with_node_1(&comment_input)?;
     date.append_with_node_1(&date_input)?;
     gps.append_with_node_2(&gps_input, &gps_select)?;
-    options.append_with_node_1(&clone_down)?;
 
     let image = el!("img");
     image.set_id(&format!("exposure-{index}-preview"));
@@ -387,15 +371,16 @@ fn create_row(index: u32, selected: bool) -> JsResult {
     icon.append_with_node_1(&image)?;
 
     row.append_with_node_7(&select, &icon, &sspeed, &aperture, &lens, &comment, &date)?;
-    row.append_with_node_2(&gps, &options)?;
+    row.append_with_node_1(&gps)?;
     table.append_with_node_1(&row)
 }
 
 #[wasm_bindgen]
 pub fn update_coords(index: u32, lat: f64, lon: f64) -> JsResult {
-    let change = UIExposureUpdate::GPS(format!("{lat}, {lon}"));
-    update_exposure_ui(index, &change)?;
-    controller::update(Update::ExposureField(index, change))
+    controller::update(Update::ExposureField(
+        index,
+        UIExposureUpdate::GPS(format!("{lat}, {lon}")),
+    ))
 }
 
 fn setup_drag_drop(photo_selector: &web_sys::HtmlInputElement) -> JsResult {

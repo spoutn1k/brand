@@ -1,12 +1,11 @@
 use crate::models::{Data, ExposureSpecificData};
-use crate::set_exposure_selection;
-use crate::update_exposure_ui;
-use crate::JsResult;
+use crate::{set_exposure_selection, update_exposure_image, update_exposure_ui, JsResult};
 use chrono::NaiveDateTime;
 use std::convert::TryInto;
 
 pub enum Update {
-    CloneDown(u32),
+    ExposureImage(u32, String),
+    ExposureImageRestore(u32),
     SelectExposure(u32),
     SelectionClear,
     SelectionAll,
@@ -146,6 +145,33 @@ fn exposure_update_field(index: u32, change: UIExposureUpdate) -> JsResult {
     )
 }
 
+fn exposure_update_image(index: u32, data: String) -> JsResult {
+    let storage = storage!();
+    let mut image_cache: std::collections::HashMap<u32, String> =
+        serde_json::from_str(&storage.get_item("image_cache")?.unwrap_or("{}".into()))
+            .map_err(|e| format!("{e}"))?;
+
+    update_exposure_image(index, &data)?;
+
+    image_cache.insert(index, data);
+    storage.set_item(
+        "image_cache",
+        &serde_json::to_string(&image_cache).map_err(|e| format!("{e}"))?,
+    )
+}
+
+fn exposure_restore_image(index: u32) -> JsResult {
+    let image_cache: std::collections::HashMap<u32, String> =
+        serde_json::from_str(&storage!().get_item("image_cache")?.unwrap_or("{}".into()))
+            .map_err(|e| format!("{e}"))?;
+
+    let data = image_cache
+        .get(&index)
+        .ok_or(format!("No image cached for exposure {index}"))?;
+
+    update_exposure_image(index, data)
+}
+
 fn roll_update(change: UIRollUpdate) -> JsResult {
     let validated: RollUpdate = change.try_into()?;
 
@@ -266,7 +292,8 @@ pub fn update(event: Update) -> JsResult {
         Update::Roll(d) => roll_update(d),
         Update::Exposure(i, d) => exposure_update(i, d),
         Update::ExposureField(i, d) => exposure_update_field(i, d),
-        Update::CloneDown(i) => clone_row(i),
+        Update::ExposureImage(i, d) => exposure_update_image(i, d),
+        Update::ExposureImageRestore(i) => exposure_restore_image(i),
         Update::SelectExposure(e) => toggle_selection(e),
         Update::SelectionClear => manage_selection(|_| false),
         Update::SelectionAll => manage_selection(|_| true),

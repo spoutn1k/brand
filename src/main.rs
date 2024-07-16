@@ -14,7 +14,7 @@ use controller::{UIExposureUpdate, UIRollUpdate, Update};
 
 type JsResult<T = ()> = Result<T, JsValue>;
 
-fn embed_file(photo_data: &[u8], target: &web_sys::Element) -> JsResult {
+fn embed_file(index: u32, photo_data: &[u8]) -> JsResult {
     let photo = ImageReader::new(std::io::Cursor::new(photo_data))
         .with_guessed_format()
         .map_err(|e| e.to_string())?
@@ -28,18 +28,15 @@ fn embed_file(photo_data: &[u8], target: &web_sys::Element) -> JsResult {
     encoder.encode_image(&photo).map_err(|e| e.to_string())?;
 
     log::debug!("Size: {} -> {}", photo_data.len(), jpg.len());
-
-    target.set_attribute(
-        "src",
-        &format!(
-            "data:image/{};base64, {}",
-            "jpeg",
-            BASE64_STANDARD.encode(jpg)
-        ),
-    )
+    controller::update(Update::ExposureImage(index, BASE64_STANDARD.encode(jpg)))
 }
 
-fn read_file(file: web_sys::File, target: web_sys::Element) -> JsResult {
+fn update_exposure_image(index: u32, data: &str) -> JsResult {
+    query_id!(&format!("exposure-{index}-preview"))
+        .set_attribute("src", &format!("data:image/{};base64, {}", "jpeg", data))
+}
+
+fn read_file(index: u32, file: web_sys::File) -> JsResult {
     let reader = web_sys::FileReader::new()?;
     reader.read_as_array_buffer(&file)?;
 
@@ -49,7 +46,7 @@ fn read_file(file: web_sys::File, target: web_sys::Element) -> JsResult {
         let data = js_sys::Uint8Array::new(&buffer);
 
         // Create a Rust slice from the Uint8Array
-        embed_file(&data.to_vec(), &target.clone())
+        embed_file(index, &data.to_vec())
     });
     reader.set_onloadend(Some(&closure.as_ref().unchecked_ref()));
     closure.forget();
@@ -113,7 +110,7 @@ fn setup_editor_from_files(files: &Vec<web_sys::FileSystemFileEntry>) -> JsResul
         create_row(index, false)?;
         let file_load =
             Closure::<dyn Fn(_) -> JsResult>::new(move |f: web_sys::File| -> JsResult {
-                read_file(f, query_id!(&format!("exposure-{index}-preview")))
+                read_file(index, f)
             });
 
         entry.file_with_callback(file_load.as_ref().unchecked_ref());
@@ -455,6 +452,10 @@ fn setup_editor_from_data(contents: &Data) -> JsResult {
     for (index, data) in exposures {
         create_row(*index, selection.contains(index))?;
         controller::update(Update::Exposure(*index, data.clone()))?;
+
+        if let Err(e) = controller::update(Update::ExposureImageRestore(*index)) {
+            log::debug!("{e:?}");
+        }
     }
 
     storage!().set_item(

@@ -1,4 +1,4 @@
-use crate::models::{Data, ExposureSpecificData};
+use crate::models::{Data, ExposureSpecificData, Selection};
 use crate::{set_exposure_selection, update_exposure_image, update_exposure_ui, JsResult};
 use chrono::NaiveDateTime;
 use std::convert::TryInto;
@@ -6,7 +6,7 @@ use std::convert::TryInto;
 pub enum Update {
     ExposureImage(u32, String),
     ExposureImageRestore(u32),
-    SelectExposure(u32),
+    SelectExposure(u32, bool, bool),
     SelectionClear,
     SelectionAll,
     SelectionInvert,
@@ -118,12 +118,17 @@ fn exposure_update_field(index: u32, change: UIExposureUpdate) -> JsResult {
     let validated: ExposureUpdate = change.clone().try_into()?;
 
     let storage = storage!();
+
     let mut data: Data =
         serde_json::from_str(&storage.get_item("data")?.ok_or("No data in storage !")?)
             .map_err(|e| format!("{e}"))?;
-    let mut selection: std::collections::HashSet<u32> =
-        serde_json::from_str(&storage!().get_item("selected")?.unwrap_or("[]".into()))
-            .map_err(|e| e.to_string())?;
+
+    let selection: Selection =
+        serde_json::from_str(&storage!().get_item("selected")?.unwrap_or("".into()))
+            .map_err(|e| e.to_string())
+            .unwrap_or_default();
+
+    let mut selection = selection.items;
     selection.insert(index);
 
     for target in selection {
@@ -242,19 +247,17 @@ fn exposure_update(index: u32, exp: ExposureSpecificData) -> JsResult {
     )
 }
 
-fn toggle_selection(index: u32) -> JsResult {
-    let storage = storage!();
-    let mut selection: Vec<u32> =
-        serde_json::from_str(&storage.get_item("selected")?.unwrap_or("[]".into()))
-            .map_err(|e| e.to_string())?;
+pub fn get_selection() -> JsResult<Selection> {
+    serde_json::from_str(&storage!().get_item("selected")?.unwrap_or_default())
+        .map_err(|e| e.to_string())
+        .or_else(|_| Ok(Selection::default()))
+}
 
-    if let Some(position) = selection.iter().position(|e| *e == index) {
-        selection.swap_remove(position);
-        set_exposure_selection(index, false)?;
-    } else {
-        selection.push(index);
-        set_exposure_selection(index, true)?;
-    }
+fn toggle_selection(index: u32, shift: bool, ctrl: bool) -> JsResult {
+    let storage = storage!();
+    let mut selection = get_selection()?;
+
+    set_exposure_selection(index, selection.toggle(index))?;
 
     storage.set_item(
         "selected",
@@ -267,15 +270,14 @@ fn manage_selection<F: Fn(bool) -> bool>(choice: F) -> JsResult {
     let data: Data = serde_json::from_str(&storage.get_item("data")?.ok_or("No data")?)
         .map_err(|e| e.to_string())?;
 
-    let selection: Vec<u32> =
-        serde_json::from_str(&storage.get_item("selected")?.unwrap_or("[]".into()))
-            .map_err(|e| e.to_string())?;
+    let selection = get_selection()?;
 
+    // TODO fix
     let selection = data
         .exposures
         .keys()
         .filter_map(|i| {
-            let new = choice(selection.contains(i));
+            let new = choice(selection.contains(*i));
             set_exposure_selection(*i, new).ok();
             new.then_some(i)
         })
@@ -294,7 +296,7 @@ pub fn update(event: Update) -> JsResult {
         Update::ExposureField(i, d) => exposure_update_field(i, d),
         Update::ExposureImage(i, d) => exposure_update_image(i, d),
         Update::ExposureImageRestore(i) => exposure_restore_image(i),
-        Update::SelectExposure(e) => toggle_selection(e),
+        Update::SelectExposure(e, shift, ctrl) => toggle_selection(e, shift, ctrl),
         Update::SelectionClear => manage_selection(|_| false),
         Update::SelectionAll => manage_selection(|_| true),
         Update::SelectionInvert => manage_selection(|s| !s),

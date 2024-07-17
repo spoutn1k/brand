@@ -319,8 +319,8 @@ fn create_row(index: u32, selected: bool) -> JsResult {
     set_exposure_handler(index, UIExposureUpdate::GPS, &gps_input)?;
 
     let select_action =
-        Closure::<dyn Fn(_) -> JsResult>::new(move |_: web_sys::Event| -> JsResult {
-            controller::update(Update::SelectExposure(index))
+        Closure::<dyn Fn(_) -> JsResult>::new(move |e: web_sys::MouseEvent| -> JsResult {
+            controller::update(Update::SelectExposure(index, e.shift_key(), e.ctrl_key()))
         });
     icon.add_event_listener_with_callback("click", select_action.as_ref().unchecked_ref())?;
     select_action.forget();
@@ -442,15 +442,13 @@ fn download_file(filename: String, contents: String) -> JsResult {
 
 fn setup_editor_from_data(contents: &Data) -> JsResult {
     setup_roll_fields(&contents.roll)?;
-    let selection: Vec<u32> =
-        serde_json::from_str(&storage!().get_item("selected")?.unwrap_or("[]".into()))
-            .map_err(|e| e.to_string())?;
+    let selection = controller::get_selection()?;
 
     let mut exposures: Vec<(&u32, &ExposureSpecificData)> = contents.exposures.iter().collect();
     exposures.sort_by_key(|e| e.0);
 
     for (index, data) in exposures {
-        create_row(*index, selection.contains(index))?;
+        create_row(*index, selection.contains(*index))?;
         controller::update(Update::Exposure(*index, data.clone()))?;
 
         if let Err(e) = controller::update(Update::ExposureImageRestore(*index)) {

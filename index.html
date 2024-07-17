@@ -76,6 +76,10 @@
             map.on('click', update_exposure);
         }
 
+        function is_shift(e) {
+            e.shiftKey
+        }
+
         function set_marker(lat, lng) {
             if (marker) {
                 map.removeLayer(marker);

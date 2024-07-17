@@ -144,3 +144,29 @@ impl Data {
         lines.join("\n")
     }
 }
+
+#[derive(Clone, Default, Debug, Deserialize, Serialize)]
+pub struct Selection {
+    pub last: Option<u32>,
+    pub items: std::collections::HashSet<u32>,
+}
+
+impl Selection {
+    pub fn toggle(&mut self, index: u32) -> bool {
+        let already_selected = self.items.contains(&index);
+
+        if already_selected {
+            self.last = None;
+            self.items.remove(&index);
+        } else {
+            self.last = Some(index);
+            self.items.insert(index);
+        }
+
+        !already_selected
+    }
+
+    pub fn contains(&self, index: u32) -> bool {
+        self.items.contains(&index)
+    }
+}

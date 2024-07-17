@@ -254,12 +254,28 @@ pub fn get_selection() -> JsResult<Selection> {
 }
 
 fn toggle_selection(index: u32, shift: bool, ctrl: bool) -> JsResult {
-    let storage = storage!();
     let mut selection = get_selection()?;
+
+    if shift {
+        if let Some(last) = selection.last {
+            let data: Data = serde_json::from_str(&storage!().get_item("data")?.ok_or("No data")?)
+                .map_err(|e| e.to_string())?;
+            let min = u32::min(index, last);
+            let max = u32::max(index, last);
+            log::info!("Shift pressed ! {min} {max}");
+
+            for &exp in data.exposures.keys() {
+                if min < exp && exp < max {
+                    selection.select(exp);
+                    set_exposure_selection(exp, true)?;
+                }
+            }
+        }
+    }
 
     set_exposure_selection(index, selection.toggle(index))?;
 
-    storage.set_item(
+    storage!().set_item(
         "selected",
         &serde_json::to_string(&selection).map_err(|e| e.to_string())?,
     )
@@ -270,18 +286,19 @@ fn manage_selection<F: Fn(bool) -> bool>(choice: F) -> JsResult {
     let data: Data = serde_json::from_str(&storage.get_item("data")?.ok_or("No data")?)
         .map_err(|e| e.to_string())?;
 
-    let selection = get_selection()?;
+    let mut selection = get_selection()?;
 
-    // TODO fix
-    let selection = data
+    selection.items = data
         .exposures
         .keys()
+        .cloned()
         .filter_map(|i| {
-            let new = choice(selection.contains(*i));
-            set_exposure_selection(*i, new).ok();
+            let new = choice(selection.contains(i));
+            set_exposure_selection(i, new).ok();
             new.then_some(i)
         })
-        .collect::<Vec<_>>();
+        .collect::<std::collections::HashSet<_>>();
+    selection.last = None;
 
     storage.set_item(
         "selected",

@@ -152,6 +152,11 @@ pub struct Selection {
 }
 
 impl Selection {
+    pub fn select(&mut self, index: u32) -> bool {
+        self.last = Some(index);
+        self.items.insert(index)
+    }
+
     pub fn toggle(&mut self, index: u32) -> bool {
         let already_selected = self.items.contains(&index);
 

@@ -17,10 +17,15 @@ static TIMESTAMP_FORMAT: &str = "%Y %m %d %H %M %S";
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-    /// Turn debugging information on
-    #[arg(short, long)]
+    /// Path to the exposure folder containing the index.tse file
+    #[arg(required = true)]
     #[clap(default_value = ".")]
     dir: std::path::PathBuf,
+
+    /// Turn debugging information on
+    #[arg(short, long)]
+    #[clap(default_value = "false")]
+    debug: bool,
 }
 
 #[derive(Clone, Default, Debug)]
@@ -165,11 +170,18 @@ fn exposure_tsv(input: &mut &str) -> PResult<ExposureData> {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    SimpleLogger::new()
-        .with_level(log::LevelFilter::Debug)
-        .init()?;
-
     let args = Cli::parse();
+
+    if args.debug {
+        SimpleLogger::new()
+            .with_level(log::LevelFilter::Debug)
+            .init()?;
+    } else {
+        SimpleLogger::new()
+            .with_level(log::LevelFilter::Info)
+            .init()?;
+    }
+
     let mut tse_file_path = args.dir.clone();
     tse_file_path.push("index.tse");
 

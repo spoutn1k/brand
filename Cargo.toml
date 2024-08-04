@@ -18,10 +18,9 @@ serde_json = "1.0.118"
 serde_with = { version = "3.8.3", features = ["chrono_0_4"] }
 sha2 = "0.10.8"
 simple_logger = { version = "5.0.0", features = ["stderr"] }
-tiff = { git = "https://github.com/spoutn1k/image-tiff?branch=predictor", version = "0.9.1" }
+tiff = { git = "https://github.com/spoutn1k/image-tiff", rev = "ef80908737282db7ac67df6fc5ab0d0439660a26" }
 wasm-bindgen = { version = "0.2.92", features = ["serde_json"] }
 wasm-logger = "0.2.0"
-weezl = { version = "0.1.8", path = "../weezl" }
 winnow = "0.6.13"
 
 [dependencies.web-sys]
@@ -35,10 +34,5 @@ bench = false
 
 [[bin]]
 name = "resize"
-test = false
-bench = false
-
-[[bin]]
-name = "load"
 test = false
 bench = false

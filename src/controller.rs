@@ -128,10 +128,7 @@ fn exposure_update_field(index: u32, change: UIExposureUpdate) -> JsResult {
             .map_err(|e| e.to_string())
             .unwrap_or_default();
 
-    let mut selection = selection.items;
-    selection.insert(index);
-
-    for target in selection {
+    for target in std::iter::once(index).chain(selection.items()) {
         data.exposures
             .get_mut(&target)
             .ok_or("Failed to access exposure")?
@@ -193,6 +190,7 @@ fn roll_update(change: UIRollUpdate) -> JsResult {
     )
 }
 
+/* Deprecated
 fn clone_row(index: u32) -> JsResult {
     let storage = storage!();
     let data: Data = serde_json::from_str(&storage.get_item("data")?.ok_or("No data")?)
@@ -213,6 +211,7 @@ fn clone_row(index: u32) -> JsResult {
     exposures[position + 1] = (target, exp.clone());
     exposure_update(target, exp)
 }
+*/
 
 fn exposure_update(index: u32, exp: ExposureSpecificData) -> JsResult {
     let storage = storage!();
@@ -256,24 +255,17 @@ pub fn get_selection() -> JsResult<Selection> {
 fn toggle_selection(index: u32, shift: bool, ctrl: bool) -> JsResult {
     let mut selection = get_selection()?;
 
-    if shift {
-        if let Some(last) = selection.last {
-            let data: Data = serde_json::from_str(&storage!().get_item("data")?.ok_or("No data")?)
-                .map_err(|e| e.to_string())?;
-            let min = u32::min(index, last);
-            let max = u32::max(index, last);
-            log::info!("Shift pressed ! {min} {max}");
-
-            for &exp in data.exposures.keys() {
-                if min < exp && exp < max {
-                    selection.select(exp);
-                    set_exposure_selection(exp, true)?;
-                }
-            }
-        }
+    match (ctrl, shift) {
+        (false, false) => selection.set_one(index),
+        (true, false) => selection.toggle(index),
+        (false, true) => selection.group_select(index),
+        _ => (),
     }
 
-    set_exposure_selection(index, selection.toggle(index))?;
+    let choices = selection.items();
+    for exposure in 0..40 {
+        set_exposure_selection(exposure, choices.contains(&exposure)).ok();
+    }
 
     storage!().set_item(
         "selected",
@@ -281,26 +273,22 @@ fn toggle_selection(index: u32, shift: bool, ctrl: bool) -> JsResult {
     )
 }
 
-fn manage_selection<F: Fn(bool) -> bool>(choice: F) -> JsResult {
-    let storage = storage!();
-    let data: Data = serde_json::from_str(&storage.get_item("data")?.ok_or("No data")?)
-        .map_err(|e| e.to_string())?;
-
+fn manage_selection(operation: Update) -> JsResult {
     let mut selection = get_selection()?;
 
-    selection.items = data
-        .exposures
-        .keys()
-        .cloned()
-        .filter_map(|i| {
-            let new = choice(selection.contains(i));
-            set_exposure_selection(i, new).ok();
-            new.then_some(i)
-        })
-        .collect::<std::collections::HashSet<_>>();
-    selection.last = None;
+    match operation {
+        Update::SelectionInvert => selection.invert(),
+        Update::SelectionClear => selection.clear(),
+        Update::SelectionAll => selection.all(),
+        _ => unreachable!(),
+    }
 
-    storage.set_item(
+    let choices = selection.items();
+    for exposure in 0..40 {
+        set_exposure_selection(exposure, choices.contains(&exposure)).ok();
+    }
+
+    storage!().set_item(
         "selected",
         &serde_json::to_string(&selection).map_err(|e| e.to_string())?,
     )
@@ -314,8 +302,8 @@ pub fn update(event: Update) -> JsResult {
         Update::ExposureImage(i, d) => exposure_update_image(i, d),
         Update::ExposureImageRestore(i) => exposure_restore_image(i),
         Update::SelectExposure(e, shift, ctrl) => toggle_selection(e, shift, ctrl),
-        Update::SelectionClear => manage_selection(|_| false),
-        Update::SelectionAll => manage_selection(|_| true),
-        Update::SelectionInvert => manage_selection(|s| !s),
+        Update::SelectionClear | Update::SelectionAll | Update::SelectionInvert => {
+            manage_selection(event)
+        }
     }
 }

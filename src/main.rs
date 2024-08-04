@@ -1,5 +1,5 @@
 use base64::prelude::*;
-use image::io::Reader as ImageReader;
+use image::ImageReader;
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 

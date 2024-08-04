@@ -145,33 +145,190 @@ impl Data {
     }
 }
 
+use std::ops::Range;
+
 #[derive(Clone, Default, Debug, Deserialize, Serialize)]
 pub struct Selection {
-    pub last: Option<u32>,
-    pub items: std::collections::HashSet<u32>,
+    last: Option<u32>,
+    items: Vec<Range<u32>>,
+}
+
+struct Folder {
+    ranges: Vec<Range<u32>>,
+    current: Range<u32>,
+}
+
+impl Folder {
+    fn new(start: u32) -> Self {
+        Folder {
+            ranges: vec![],
+            current: start..start + 1,
+        }
+    }
+
+    fn add(mut self, item: u32) -> Self {
+        if item == self.current.end {
+            self.current.end = item + 1
+        } else {
+            self.ranges.push(self.current);
+            self.current = item..item + 1;
+        }
+
+        self
+    }
+
+    fn fin(mut self) -> Vec<Range<u32>> {
+        let mut fin = std::mem::take(&mut self.ranges);
+        fin.push(self.current);
+        fin
+    }
 }
 
 impl Selection {
-    pub fn select(&mut self, index: u32) -> bool {
-        self.last = Some(index);
-        self.items.insert(index)
-    }
-
-    pub fn toggle(&mut self, index: u32) -> bool {
-        let already_selected = self.items.contains(&index);
-
-        if already_selected {
-            self.last = None;
-            self.items.remove(&index);
-        } else {
-            self.last = Some(index);
-            self.items.insert(index);
-        }
-
-        !already_selected
-    }
+    const LIMIT: u32 = 256;
 
     pub fn contains(&self, index: u32) -> bool {
-        self.items.contains(&index)
+        self.items.iter().any(|r| r.contains(&index))
     }
+
+    pub fn set_one(&mut self, index: u32) {
+        self.last = Some(index);
+        self.items = vec![index..index + 1]
+    }
+
+    pub fn items(&self) -> Vec<u32> {
+        self.items
+            .iter()
+            .flat_map(|r| r.clone().into_iter())
+            .collect()
+    }
+
+    fn add(&mut self, item: u32) {
+        self.add_all(item..item + 1)
+    }
+
+    fn add_all(&mut self, items: Range<u32>) {
+        let mut choices: Vec<u32> = items
+            .chain(self.items())
+            .collect::<std::collections::HashSet<u32>>()
+            .into_iter()
+            .collect();
+
+        choices.sort();
+
+        self.items = choices
+            .iter()
+            .skip(1)
+            .fold(Folder::new(choices[0]), |acc, i| acc.add(*i))
+            .fin();
+    }
+
+    fn del(&mut self, item: u32) {
+        let mut choices = self.items();
+
+        choices.retain(|i| *i != item);
+
+        if choices.len() == 0 {
+            self.items = vec![];
+        } else {
+            self.items = choices
+                .iter()
+                .skip(1)
+                .fold(Folder::new(choices[0]), |acc, i| acc.add(*i))
+                .fin();
+        }
+    }
+
+    pub fn toggle(&mut self, item: u32) {
+        if self.contains(item) {
+            self.del(item)
+        } else {
+            self.add(item)
+        }
+    }
+
+    pub fn group_select(&mut self, item: u32) {
+        if let Some(anchor) = self.last {
+            let (min, max) = (std::cmp::min(anchor, item), std::cmp::max(anchor, item));
+            self.add_all(min..max + 1)
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.items = vec![];
+    }
+
+    pub fn all(&mut self) {
+        self.items = vec![0..Self::LIMIT];
+    }
+
+    pub fn invert(&mut self) {
+        let choices = self.items();
+        let mut all: Vec<u32> = (0..Self::LIMIT).collect();
+
+        all.retain(|i| !choices.contains(i));
+
+        if all.len() == 0 {
+            self.items = vec![];
+        } else {
+            self.items = all
+                .iter()
+                .skip(1)
+                .fold(Folder::new(all[0]), |acc, i| acc.add(*i))
+                .fin();
+        }
+    }
+}
+
+#[test]
+fn test_selection_contains() {
+    let mut selection = Selection::default();
+
+    selection.set_one(5);
+    assert_eq!(selection.contains(5), true);
+    assert_eq!(selection.contains(4), false);
+}
+
+#[test]
+fn test_sorted_vec_to_select() {
+    let choices = [1, 2, 3, 7, 9, 10];
+
+    let selection = choices
+        .iter()
+        .skip(1)
+        .fold(Folder::new(choices[0]), |acc, i| acc.add(*i))
+        .fin();
+
+    assert_eq!(selection, vec![1..4, 7..8, 9..11])
+}
+
+#[test]
+fn test_selection_add() {
+    let mut sel = Selection {
+        last: None,
+        items: vec![1..4, 5..7],
+    };
+
+    sel.add(4);
+    assert_eq!(sel.items, vec![1..7]);
+
+    sel.add(10);
+    assert_eq!(sel.items, vec![1..7, 10..11])
+}
+
+#[test]
+fn test_selection_del() {
+    let mut sel = Selection {
+        last: None,
+        items: vec![1..7],
+    };
+
+    sel.del(4);
+    assert_eq!(sel.items, vec![1..4, 5..7]);
+
+    sel.del(1);
+    assert_eq!(sel.items, vec![2..4, 5..7]);
+
+    sel.del(6);
+    assert_eq!(sel.items, vec![2..4, 5..6]);
 }

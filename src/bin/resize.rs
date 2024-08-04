@@ -1,7 +1,9 @@
 use clap::Parser;
-use image::io::Reader as ImageReader;
+use image::ImageReader;
 use simple_logger::SimpleLogger;
 use std::error::Error;
+
+use tiff::encoder::{colortype, Compression, Predictor, TiffEncoder};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -36,7 +38,21 @@ fn create_thumbnail(tiff: &std::path::Path) -> Result<(), Box<dyn Error>> {
 fn compress(tiff: &std::path::Path) -> Result<(), Box<dyn Error>> {
     let photo = ImageReader::open(tiff)?.with_guessed_format()?.decode()?;
 
-    photo.save_with_format(tiff.with_extension("tiff"), image::ImageFormat::Tiff)?;
+    let compressed = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open("/dev/null")?;
+
+    let mut encoder = TiffEncoder::<std::fs::File>::new(compressed)?
+        .with_compression(Compression::Lzw)
+        .with_predictor(Predictor::Horizontal);
+
+    encoder.write_image::<colortype::RGB8>(
+        photo.width(),
+        photo.height(),
+        photo.as_rgb8().expect("Wrong image format"),
+    )?;
 
     Ok(())
 }
@@ -50,7 +66,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             .init()?;
     } else {
         SimpleLogger::new()
-            .with_level(log::LevelFilter::Info)
+            .with_level(log::LevelFilter::Trace)
             .init()?;
     }
 
@@ -62,7 +78,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         log::info!("{:?} {:?}", file.file_name(), file.extension());
         match file.extension() {
             Some(e) if e == "tif" => compress(&file)?,
-            Some(e) if e == "tiff" => create_thumbnail(&file)?,
+            //Some(e) if e == "tiff" => create_thumbnail(&file)?,
             _ => (),
         }
     }

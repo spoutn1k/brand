@@ -9,7 +9,7 @@ bytes = "1.6.0"
 chrono = "0.4.38"
 clap = { version = "4.5.7", features = ["derive"] }
 console_error_panic_hook = "0.1.7"
-image = "0.25.1"
+image = "0.25.2"
 js-sys = "0.3.69"
 log = "0.4.21"
 regex = "1.10.5"
@@ -18,8 +18,10 @@ serde_json = "1.0.118"
 serde_with = { version = "3.8.3", features = ["chrono_0_4"] }
 sha2 = "0.10.8"
 simple_logger = { version = "5.0.0", features = ["stderr"] }
+tiff = { git = "https://github.com/spoutn1k/image-tiff?branch=predictor", version = "0.9.1" }
 wasm-bindgen = { version = "0.2.92", features = ["serde_json"] }
 wasm-logger = "0.2.0"
+weezl = { version = "0.1.8", path = "../weezl" }
 winnow = "0.6.13"
 
 [dependencies.web-sys]
@@ -33,5 +35,10 @@ bench = false
 
 [[bin]]
 name = "resize"
+test = false
+bench = false
+
+[[bin]]
+name = "load"
 test = false
 bench = false

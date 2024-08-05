@@ -37,6 +37,7 @@ input {
 
 #editor {
     display: flex;
+    height: 100%;
     width: 100%;
 
     flex-flow: column;
@@ -46,7 +47,17 @@ input {
         display: none;
     }
 
+    div#preview {
+        flex: 1;
+
+        display: grid;
+        grid-template-columns: repeat(80, 1fr);
+        position: relative;
+    }
+
     div#header {
+        flex: 0 1 auto;
+
         display: flex;
         flex-flow: row;
         justify-content: space-between;
@@ -58,9 +69,11 @@ input {
     }
 
     table#exposures {
+        flex: 1;
         display: flex;
         flex-flow: column;
         gap: .5rem;
+        overflow: auto;
 
         tr {
             background: #ddd;

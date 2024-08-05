@@ -1,7 +1,8 @@
 use crate::models::{Data, ExposureSpecificData, Selection};
-use crate::{set_exposure_selection, update_exposure_image, update_exposure_ui, JsResult};
+use crate::{update_exposure_ui, JsResult};
 use chrono::NaiveDateTime;
 use std::convert::TryInto;
+use wasm_bindgen::prelude::*;
 
 pub enum Update {
     ExposureImage(u32, String),
@@ -123,10 +124,7 @@ fn exposure_update_field(index: u32, change: UIExposureUpdate) -> JsResult {
         serde_json::from_str(&storage.get_item("data")?.ok_or("No data in storage !")?)
             .map_err(|e| format!("{e}"))?;
 
-    let selection: Selection =
-        serde_json::from_str(&storage!().get_item("selected")?.unwrap_or("".into()))
-            .map_err(|e| e.to_string())
-            .unwrap_or_default();
+    let selection: Selection = get_selection()?;
 
     for target in std::iter::once(index).chain(selection.items()) {
         data.exposures
@@ -147,31 +145,81 @@ fn exposure_update_field(index: u32, change: UIExposureUpdate) -> JsResult {
     )
 }
 
-fn exposure_update_image(index: u32, data: String) -> JsResult {
-    let storage = storage!();
-    let mut image_cache: std::collections::HashMap<u32, String> =
-        serde_json::from_str(&storage.get_item("image_cache")?.unwrap_or("{}".into()))
-            .map_err(|e| format!("{e}"))?;
+macro_rules! image_cache {
+    () => {
+        serde_json::from_str::<std::collections::HashMap<u32, String>>(
+            &storage!().get_item("image_cache")?.unwrap_or("{}".into()),
+        )
+        .map_err(|e| format!("{e}"))?
+    };
+}
 
-    update_exposure_image(index, &data)?;
+fn set_exposure_selection(index: u32, selected: bool) -> JsResult {
+    query_id!(
+        &format!("exposure-input-select-{index}"),
+        web_sys::HtmlInputElement
+    )
+    .set_checked(selected);
+
+    let classes = query_id!(&format!("exposure-{index}")).class_list();
+    if selected {
+        preview_exposure(index)?;
+
+        classes.add_1("selected")
+    } else {
+        preview_exposure_cancel(index)?;
+
+        classes.remove_1("selected")
+    }
+}
+
+fn preview_exposure(index: u32) -> JsResult {
+    if let Some(_) = web_sys::window()
+        .ok_or("No window")?
+        .document()
+        .ok_or("no document on window")?
+        .get_element_by_id(&format!("exposure-{index}-preview"))
+    {
+        return Ok(());
+    }
+
+    let image_cache = image_cache!();
+
+    let data = image_cache
+        .get(&index)
+        .ok_or(format!("No image cached for exposure {index}"))?;
+
+    let image = el!("img");
+    image.set_id(&format!("exposure-{index}-preview"));
+    image.set_attribute("alt", &format!("E{}", index))?;
+    image.set_attribute("src", &format!("data:image/{};base64, {}", "jpeg", data))?;
+
+    query_id!("preview").append_with_node_1(&image)
+}
+
+fn preview_exposure_cancel(index: u32) -> JsResult {
+    Ok(query_id!(&format!("exposure-{index}-preview")).remove())
+}
+
+fn exposure_update_image(index: u32, data: String) -> JsResult {
+    let mut image_cache = image_cache!();
 
     image_cache.insert(index, data);
-    storage.set_item(
+    storage!().set_item(
         "image_cache",
         &serde_json::to_string(&image_cache).map_err(|e| format!("{e}"))?,
     )
 }
 
 fn exposure_restore_image(index: u32) -> JsResult {
-    let image_cache: std::collections::HashMap<u32, String> =
-        serde_json::from_str(&storage!().get_item("image_cache")?.unwrap_or("{}".into()))
-            .map_err(|e| format!("{e}"))?;
+    let image_cache = image_cache!();
 
     let data = image_cache
         .get(&index)
         .ok_or(format!("No image cached for exposure {index}"))?;
 
-    update_exposure_image(index, data)
+    query_id!(&format!("exposure-{index}-preview"))
+        .set_attribute("src", &format!("data:image/{};base64, {}", "jpeg", data))
 }
 
 fn roll_update(change: UIRollUpdate) -> JsResult {

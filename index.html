@@ -11,6 +11,8 @@
     <input id=photoselect type=file data-multiple-caption="" multiple />
 
     <div id=editor class=hidden>
+        <div id=preview></div>
+
         <div id=header>
             <div id=roll>
                 <input id=roll-author-input />
@@ -28,8 +30,7 @@
             </div>
         </div>
 
-        <table id=exposures>
-        </table>
+        <table id=exposures></table>
     </div>
 
     <div id="map" class=hidden></div>
@@ -74,10 +75,6 @@
             }
 
             map.on('click', update_exposure);
-        }
-
-        function is_shift(e) {
-            e.shiftKey
         }
 
         function set_marker(lat, lng) {

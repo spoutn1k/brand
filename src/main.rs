@@ -31,11 +31,6 @@ fn embed_file(index: u32, photo_data: &[u8]) -> JsResult {
     controller::update(Update::ExposureImage(index, BASE64_STANDARD.encode(jpg)))
 }
 
-fn update_exposure_image(index: u32, data: &str) -> JsResult {
-    query_id!(&format!("exposure-{index}-preview"))
-        .set_attribute("src", &format!("data:image/{};base64, {}", "jpeg", data))
-}
-
 fn read_file(index: u32, file: web_sys::File) -> JsResult {
     let reader = web_sys::FileReader::new()?;
     reader.read_as_array_buffer(&file)?;
@@ -241,21 +236,6 @@ fn update_exposure_ui(index: u32, data: &UIExposureUpdate) -> JsResult {
     Ok(())
 }
 
-fn set_exposure_selection(index: u32, selected: bool) -> JsResult {
-    query_id!(
-        &format!("exposure-input-select-{index}"),
-        web_sys::HtmlInputElement
-    )
-    .set_checked(selected);
-
-    let classes = query_id!(&format!("exposure-{index}")).class_list();
-    if selected {
-        classes.add_1("selected")
-    } else {
-        classes.remove_1("selected")
-    }
-}
-
 fn create_row(index: u32, selected: bool) -> JsResult {
     let table = query_selector!("table#exposures");
 
@@ -267,8 +247,6 @@ fn create_row(index: u32, selected: bool) -> JsResult {
     let select = el!("td", web_sys::HtmlElement);
     select.set_id(&format!("exposure-select-{index}"));
     select.style().set_property("display", "none")?;
-    let icon = el!("td");
-    icon.set_id(&format!("exposure-image-{index}"));
     let sspeed = el!("td");
     sspeed.set_id(&format!("exposure-field-sspeed-{index}"));
     let aperture = el!("td");
@@ -322,7 +300,7 @@ fn create_row(index: u32, selected: bool) -> JsResult {
         Closure::<dyn Fn(_) -> JsResult>::new(move |e: web_sys::MouseEvent| -> JsResult {
             controller::update(Update::SelectExposure(index, e.shift_key(), e.ctrl_key()))
         });
-    icon.add_event_listener_with_callback("click", select_action.as_ref().unchecked_ref())?;
+    row.add_event_listener_with_callback("click", select_action.as_ref().unchecked_ref())?;
     select_action.forget();
 
     {
@@ -362,12 +340,7 @@ fn create_row(index: u32, selected: bool) -> JsResult {
     date.append_with_node_1(&date_input)?;
     gps.append_with_node_2(&gps_input, &gps_select)?;
 
-    let image = el!("img");
-    image.set_id(&format!("exposure-{index}-preview"));
-    image.set_attribute("alt", &format!("Exposure number {}", index))?;
-    icon.append_with_node_1(&image)?;
-
-    row.append_with_node_7(&select, &icon, &sspeed, &aperture, &lens, &comment, &date)?;
+    row.append_with_node_6(&select, &sspeed, &aperture, &lens, &comment, &date)?;
     row.append_with_node_1(&gps)?;
     table.append_with_node_1(&row)
 }

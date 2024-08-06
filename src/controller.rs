@@ -304,7 +304,11 @@ fn toggle_selection(index: u32, shift: bool, ctrl: bool) -> JsResult {
     let mut selection = get_selection()?;
 
     match (ctrl, shift) {
-        (false, false) => selection.set_one(index),
+        (false, false) => {
+            if !selection.contains(index) {
+                selection.set_one(index)
+            }
+        }
         (true, false) => selection.toggle(index),
         (false, true) => selection.group_select(index),
         _ => (),

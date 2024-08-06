@@ -21,7 +21,7 @@ fn embed_file(index: u32, photo_data: &[u8]) -> JsResult {
         .decode()
         .map_err(|e| e.to_string())?;
 
-    let photo = photo.resize(256, 256, image::imageops::FilterType::Nearest);
+    let photo = photo.resize(512, 512, image::imageops::FilterType::Nearest);
 
     let mut jpg = vec![];
     let mut encoder = image::codecs::jpeg::JpegEncoder::new(&mut jpg);
@@ -86,6 +86,18 @@ fn setup_editor_from_files(files: &Vec<web_sys::FileSystemFileEntry>) -> JsResul
 
     let mut index: Vec<(u32, Vec<web_sys::FileSystemFileEntry>)> = index.into_iter().collect();
     index.sort_by_key(|e| e.0);
+
+    let dest = js_sys::Map::new();
+    index.clone().iter().for_each(|(i, f)| {
+        let sub_array = js_sys::Array::new();
+
+        for fi in f {
+            sub_array.push(&fi);
+        }
+
+        dest.set(&serde_wasm_bindgen::to_value(i).unwrap(), &sub_array);
+    });
+    set_handles(dest);
 
     let mut template = Data::default();
     for (index, _) in index.iter() {
@@ -385,6 +397,10 @@ extern "C" {
     fn set_marker(x: f64, y: f64);
     fn prompt_coords(i: u32);
     fn encodeURIComponent(i: String) -> String;
+
+    fn get_handles() -> js_sys::Map;
+    fn set_handles(h: js_sys::Map);
+
 }
 
 fn download_file(filename: String, contents: String) -> JsResult {

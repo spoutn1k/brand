@@ -2,6 +2,7 @@ use clap::Parser;
 use image::ImageReader;
 use simple_logger::SimpleLogger;
 use std::error::Error;
+use std::fs::File;
 
 use tiff::encoder::{colortype, Compression, Predictor, TiffEncoder};
 
@@ -38,13 +39,9 @@ fn create_thumbnail(tiff: &std::path::Path) -> Result<(), Box<dyn Error>> {
 fn compress(tiff: &std::path::Path) -> Result<(), Box<dyn Error>> {
     let photo = ImageReader::open(tiff)?.with_guessed_format()?.decode()?;
 
-    let compressed = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open("/dev/null")?;
+    let compressed = File::create(tiff.with_extension("tiff"))?;
 
-    let mut encoder = TiffEncoder::<std::fs::File>::new(compressed)?
+    let mut encoder = TiffEncoder::new(compressed)?
         .with_compression(Compression::Lzw)
         .with_predictor(Predictor::Horizontal);
 
@@ -75,10 +72,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         .collect::<Result<Vec<_>, std::io::Error>>()?;
 
     for file in out {
-        log::info!("{:?} {:?}", file.file_name(), file.extension());
         match file.extension() {
-            Some(e) if e == "tif" => compress(&file)?,
-            //Some(e) if e == "tiff" => create_thumbnail(&file)?,
+            Some(e) if e == "tif" => {
+                compress(&file)?;
+                create_thumbnail(&file)?;
+            }
+            Some(e) if e == "tiff" => create_thumbnail(&file)?,
             _ => (),
         }
     }

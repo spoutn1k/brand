@@ -1,5 +1,7 @@
-use crate::models::{Data, ExposureSpecificData, Selection};
-use crate::{update_exposure_ui, JsResult};
+use crate::{
+    models::{Data, ExposureSpecificData, Selection, MAX_EXPOSURES},
+    update_exposure_ui, JsResult,
+};
 use chrono::NaiveDateTime;
 use std::convert::TryInto;
 use wasm_bindgen::prelude::*;
@@ -315,7 +317,7 @@ fn toggle_selection(index: u32, shift: bool, ctrl: bool) -> JsResult {
     }
 
     let choices = selection.items();
-    for exposure in 0..40 {
+    for exposure in 0..=MAX_EXPOSURES {
         set_exposure_selection(exposure, choices.contains(&exposure)).ok();
     }
 
@@ -336,7 +338,7 @@ fn manage_selection(operation: Update) -> JsResult {
     }
 
     let choices = selection.items();
-    for exposure in 0..40 {
+    for exposure in 0..=MAX_EXPOSURES {
         set_exposure_selection(exposure, choices.contains(&exposure)).ok();
     }
 

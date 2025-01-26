@@ -37,3 +37,8 @@ bench = false
 name = "resize"
 test = false
 bench = false
+
+[[bin]]
+name = "split"
+test = false
+bench = false

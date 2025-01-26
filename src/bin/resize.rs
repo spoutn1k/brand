@@ -1,15 +1,15 @@
+use brand::image_management::{format, SupportedImage};
 use clap::Parser;
-use image::ImageReader;
+use image::{DynamicImage, ImageReader};
 use simple_logger::SimpleLogger;
 use std::error::Error;
 use std::fs::File;
-
 use tiff::encoder::{colortype, Compression, Predictor, TiffEncoder};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-    /// Path to the exposure folder containing the index.tse file
+    /// Path to the exposure folder
     #[arg(required = true)]
     #[clap(default_value = ".")]
     dir: std::path::PathBuf,
@@ -20,36 +20,20 @@ struct Cli {
     debug: bool,
 }
 
-fn create_thumbnail(tiff: &std::path::Path) -> Result<(), Box<dyn Error>> {
-    let photo = ImageReader::open(tiff)?
-        .with_guessed_format()?
-        .decode()?
-        .resize(2000, 2000, image::imageops::FilterType::Nearest);
-
-    let thumbnail = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .open(tiff.with_extension("jpg"))?;
-
-    image::codecs::jpeg::JpegEncoder::new(thumbnail).encode_image(&photo)?;
-
-    Ok(())
-}
-
-fn compress(tiff: &std::path::Path) -> Result<(), Box<dyn Error>> {
-    let photo = ImageReader::open(tiff)?.with_guessed_format()?.decode()?;
-
-    let compressed = File::create(tiff.with_extension("tiff"))?;
-
-    let mut encoder = TiffEncoder::new(compressed)?
+fn compress(photo: &DynamicImage, destination: &std::path::Path) -> Result<(), Box<dyn Error>> {
+    let mut encoder = TiffEncoder::new(File::create(destination)?)?
         .with_compression(Compression::Lzw)
         .with_predictor(Predictor::Horizontal);
 
-    encoder.write_image::<colortype::RGB8>(
-        photo.width(),
-        photo.height(),
-        photo.as_rgb8().expect("Wrong image format"),
-    )?;
+    match format(photo.clone()) {
+        SupportedImage::RGB(photo) => {
+            encoder.write_image::<colortype::RGBA8>(photo.width(), photo.height(), &photo)?
+        }
+
+        SupportedImage::Gray(photo) => {
+            encoder.write_image::<colortype::Gray8>(photo.width(), photo.height(), &photo)?
+        }
+    }
 
     Ok(())
 }
@@ -57,27 +41,30 @@ fn compress(tiff: &std::path::Path) -> Result<(), Box<dyn Error>> {
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Cli::parse();
 
-    if args.debug {
-        SimpleLogger::new()
-            .with_level(log::LevelFilter::Debug)
-            .init()?;
+    let level = if args.debug {
+        log::LevelFilter::Debug
     } else {
-        SimpleLogger::new()
-            .with_level(log::LevelFilter::Trace)
-            .init()?;
-    }
+        log::LevelFilter::Info
+    };
+
+    SimpleLogger::new().with_level(level).init()?;
 
     let out = std::fs::read_dir(args.dir)?
         .map(|e| Ok(e?.path()))
         .collect::<Result<Vec<_>, std::io::Error>>()?;
 
     for file in out {
-        match file.extension() {
-            Some(e) if e == "tif" => {
-                compress(&file)?;
-                create_thumbnail(&file)?;
+        match file.clone().extension().map(|e| e.to_string_lossy()) {
+            Some(e) if e.starts_with("tif") => {
+                let photo = ImageReader::open(&file)?.with_guessed_format()?.decode()?;
+                if e == "tiff" {
+                    compress(&photo, &file.with_extension("tiff"))?;
+                }
+
+                photo
+                    .resize(2000, 2000, image::imageops::FilterType::Nearest)
+                    .save(&file.with_extension("jpg"))?;
             }
-            Some(e) if e == "tiff" => create_thumbnail(&file)?,
             _ => (),
         }
     }

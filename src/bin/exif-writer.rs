@@ -6,10 +6,10 @@ use simple_logger::SimpleLogger;
 use std::error::Error;
 use winnow::{
     ascii::{alphanumeric1, float, tab},
-    combinator::{alt, empty, separated_pair, seq},
+    combinator::{alt, empty, opt, separated_pair, seq},
     error::{StrContext, StrContextValue},
     token::take_till,
-    PResult,
+    PResult, Parser as _,
 };
 
 static TIMESTAMP_FORMAT: &str = "%Y %m %d %H %M %S";
@@ -134,7 +134,6 @@ pub fn expected(reason: &'static str) -> StrContext {
 }
 
 fn exposure_tsv(input: &mut &str) -> PResult<ExposureData> {
-    use winnow::Parser;
     let format = || {
         alt((
             alphanumeric1.map(|m| Some(String::from(m))),
@@ -142,10 +141,17 @@ fn exposure_tsv(input: &mut &str) -> PResult<ExposureData> {
         ))
     };
 
+    let aperture = || {
+        alt((
+            (opt("f"), float).map(|(_, m): (std::option::Option<&str>, f32)| Some(format!("{m}"))),
+            empty.value(None),
+        ))
+    };
+
     seq! {ExposureData {
-        aperture: format().context(expected("aperture")),
-        _: tab,
         sspeed: format().context(expected("sspeed")),
+        _: tab,
+        aperture: aperture().context(expected("aperture")),
         _: tab,
         lens: format().context(expected("lens")),
         _: tab,

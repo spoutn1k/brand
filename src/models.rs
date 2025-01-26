@@ -1,8 +1,9 @@
+use crate::controller::{ExposureUpdate, RollUpdate};
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::controller::{ExposureUpdate, RollUpdate};
+pub static MAX_EXPOSURES: u32 = 80;
 
 mod tse_date_format {
     use chrono::NaiveDateTime;

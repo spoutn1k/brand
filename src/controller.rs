@@ -23,7 +23,7 @@ pub enum UIRollUpdate {
     Author(String),
     Make(String),
     Model(String),
-    ISO(String),
+    Iso(String),
     Film(String),
 }
 
@@ -32,7 +32,7 @@ pub enum RollUpdate {
     Author(Option<String>),
     Make(Option<String>),
     Model(Option<String>),
-    ISO(Option<String>),
+    Iso(Option<String>),
     Film(Option<String>),
 }
 
@@ -43,7 +43,7 @@ pub enum UIExposureUpdate {
     Lens(String),
     Comment(String),
     Date(String),
-    GPS(String),
+    Gps(String),
 }
 
 #[derive(Debug, Clone)]
@@ -53,7 +53,7 @@ pub enum ExposureUpdate {
     Lens(Option<String>),
     Comment(Option<String>),
     Date(Option<NaiveDateTime>),
-    GPS(Option<(f64, f64)>),
+    Gps(Option<(f64, f64)>),
 }
 
 impl TryInto<ExposureUpdate> for UIExposureUpdate {
@@ -78,14 +78,14 @@ impl TryInto<ExposureUpdate> for UIExposureUpdate {
                     .or(NaiveDateTime::parse_from_str(&value, "%Y-%m-%dT%H:%M"))
                     .map_err(|e| e.to_string())?,
             )),
-            UIExposureUpdate::GPS(value) => {
+            UIExposureUpdate::Gps(value) => {
                 let split = value.split(",").collect::<Vec<_>>();
                 if split.len() == 2 {
                     match (
                         split[0].trim().parse::<f64>(),
                         split[1].trim().parse::<f64>(),
                     ) {
-                        (Ok(lat), Ok(lon)) => ExposureUpdate::GPS(Some((lat, lon))),
+                        (Ok(lat), Ok(lon)) => ExposureUpdate::Gps(Some((lat, lon))),
                         (Err(_), _) => {
                             Err(format!("Unrecognised format for latitude: {}", split[0]))?
                         }
@@ -111,7 +111,7 @@ impl TryInto<RollUpdate> for UIRollUpdate {
             }
             UIRollUpdate::Make(s) => RollUpdate::Make(if !s.is_empty() { Some(s) } else { None }),
             UIRollUpdate::Model(s) => RollUpdate::Model(if !s.is_empty() { Some(s) } else { None }),
-            UIRollUpdate::ISO(s) => RollUpdate::ISO(if !s.is_empty() { Some(s) } else { None }),
+            UIRollUpdate::Iso(s) => RollUpdate::Iso(if !s.is_empty() { Some(s) } else { None }),
             UIRollUpdate::Film(s) => RollUpdate::Film(if !s.is_empty() { Some(s) } else { None }),
         })
     }
@@ -176,11 +176,12 @@ fn set_exposure_selection(index: u32, selected: bool) -> JsResult {
 }
 
 fn preview_exposure(index: u32) -> JsResult {
-    if let Some(_) = web_sys::window()
+    if web_sys::window()
         .ok_or("No window")?
         .document()
         .ok_or("no document on window")?
         .get_element_by_id(&format!("exposure-{index}-preview"))
+        .is_some()
     {
         return Ok(());
     }
@@ -200,7 +201,8 @@ fn preview_exposure(index: u32) -> JsResult {
 }
 
 fn preview_exposure_cancel(index: u32) -> JsResult {
-    Ok(query_id!(&format!("exposure-{index}-preview")).remove())
+    query_id!(&format!("exposure-{index}-preview")).remove();
+    Ok(())
 }
 
 fn exposure_update_image(index: u32, data: String) -> JsResult {
@@ -268,7 +270,7 @@ fn exposure_update(index: u32, exp: ExposureSpecificData) -> JsResult {
     let mut data: Data = serde_json::from_str(&storage.get_item("data")?.ok_or("No data")?)
         .map_err(|e| e.to_string())?;
 
-    vec![
+    [
         UIExposureUpdate::ShutterSpeed(exp.sspeed.clone().unwrap_or_default()),
         UIExposureUpdate::Aperture(exp.aperture.clone().unwrap_or_default()),
         UIExposureUpdate::Comment(exp.comment.clone().unwrap_or_default()),
@@ -278,7 +280,7 @@ fn exposure_update(index: u32, exp: ExposureSpecificData) -> JsResult {
                 .map(|d| format!("{}", d.format("%Y-%m-%dT%H:%M:%S")))
                 .unwrap_or_default(),
         ),
-        UIExposureUpdate::GPS(
+        UIExposureUpdate::Gps(
             exp.gps
                 .map(|(lat, lon)| format!("{lat}, {lon}"))
                 .unwrap_or_default(),

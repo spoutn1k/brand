@@ -1,7 +1,13 @@
 use crate::controller::{ExposureUpdate, RollUpdate};
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::{
+    cmp,
+    collections::{HashMap, HashSet},
+    fmt::{self, Display, Formatter},
+    mem,
+    ops::Range,
+};
 
 pub static MAX_EXPOSURES: u32 = 80;
 
@@ -12,7 +18,7 @@ mod tse_date_format {
 
     pub struct Naive;
 
-    const FORMAT: &'static str = "%Y %m %d %H %M %S";
+    const FORMAT: &str = "%Y %m %d %H %M %S";
 
     impl SerializeAs<NaiveDateTime> for Naive {
         fn serialize_as<S>(value: &NaiveDateTime, serializer: S) -> Result<S::Ok, S::Error>
@@ -30,7 +36,7 @@ mod tse_date_format {
             D: Deserializer<'de>,
         {
             let s = String::deserialize(deserializer)?;
-            Ok(NaiveDateTime::parse_from_str(&s, FORMAT).map_err(serde::de::Error::custom)?)
+            NaiveDateTime::parse_from_str(&s, FORMAT).map_err(serde::de::Error::custom)
         }
     }
 }
@@ -67,7 +73,7 @@ impl RollData {
         match change {
             RollUpdate::Author(value) => self.author = value,
             RollUpdate::Film(value) => self.description = value,
-            RollUpdate::ISO(value) => self.iso = value,
+            RollUpdate::Iso(value) => self.iso = value,
             RollUpdate::Make(value) => self.make = value,
             RollUpdate::Model(value) => self.model = value,
         }
@@ -83,13 +89,13 @@ impl RollData {
 #Make {}
 #Model {}
 ; vim: set list number noexpandtab:",
-            self.description.clone().unwrap_or(String::new()),
-            self.description.clone().unwrap_or(String::new()),
-            self.author.clone().unwrap_or(String::new()),
-            self.author.clone().unwrap_or(String::new()),
-            self.iso.clone().unwrap_or(String::new()),
-            self.make.clone().unwrap_or(String::new()),
-            self.model.clone().unwrap_or(String::new()),
+            self.description.clone().unwrap_or_default(),
+            self.description.clone().unwrap_or_default(),
+            self.author.clone().unwrap_or_default(),
+            self.author.clone().unwrap_or_default(),
+            self.iso.clone().unwrap_or_default(),
+            self.make.clone().unwrap_or_default(),
+            self.model.clone().unwrap_or_default(),
         )
     }
 }
@@ -102,22 +108,22 @@ impl ExposureSpecificData {
             ExposureUpdate::Comment(value) => self.comment = value,
             ExposureUpdate::Lens(value) => self.lens = value,
             ExposureUpdate::Date(value) => self.date = value,
-            ExposureUpdate::GPS(value) => self.gps = value,
+            ExposureUpdate::Gps(value) => self.gps = value,
         }
     }
 
     fn as_tsv(&self) -> String {
         let mut fields = vec![
-            self.sspeed.clone().unwrap_or(String::new()),
-            self.aperture.clone().unwrap_or(String::new()),
-            self.lens.clone().unwrap_or(String::new()),
-            self.comment.clone().unwrap_or(String::new()),
+            self.sspeed.clone().unwrap_or_default(),
+            self.aperture.clone().unwrap_or_default(),
+            self.lens.clone().unwrap_or_default(),
+            self.comment.clone().unwrap_or_default(),
         ];
 
         fields.push(
             self.date
                 .map(|d| format!("{}", d.format("%Y %m %d %H %M %S")))
-                .unwrap_or(String::new()),
+                .unwrap_or_default(),
         );
 
         match self.gps {
@@ -129,8 +135,8 @@ impl ExposureSpecificData {
     }
 }
 
-impl Data {
-    pub fn to_string(&self) -> String {
+impl Display for Data {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let mut lines: Vec<String> = vec![];
         let max: u32 = *self.exposures.keys().max().unwrap_or(&0u32) + 1;
 
@@ -142,11 +148,9 @@ impl Data {
         }
 
         lines.push(self.roll.as_tsv());
-        lines.join("\n")
+        write!(f, "{}", lines.join("\n"))
     }
 }
-
-use std::ops::Range;
 
 #[derive(Clone, Default, Debug, Deserialize, Serialize)]
 pub struct Selection {
@@ -156,35 +160,40 @@ pub struct Selection {
 
 struct Folder {
     ranges: Vec<Range<u32>>,
-    current: Range<u32>,
+    current: Option<Range<u32>>,
 }
 
 impl Folder {
-    fn new(start: u32) -> Self {
+    fn new() -> Self {
         Folder {
             ranges: vec![],
-            current: start..start + 1,
+            current: None,
         }
     }
 
     fn add(mut self, item: u32) -> Self {
-        if item == self.current.end {
-            self.current.end = item + 1
-        } else {
-            self.ranges.push(self.current);
-            self.current = item..item + 1;
+        match &mut self.current {
+            None => self.current = Some(item..item + 1),
+            Some(range) if item == range.end => range.end = item + 1,
+            Some(range) => {
+                self.ranges.push(range.to_owned());
+                self.current = Some(item..item + 1);
+            }
         }
 
         self
     }
 
     fn fin(mut self) -> Vec<Range<u32>> {
-        let mut fin = std::mem::take(&mut self.ranges);
-        fin.push(self.current);
+        let mut fin = mem::take(&mut self.ranges);
+        if let Some(range) = self.current {
+            fin.push(range);
+        }
         fin
     }
 }
 
+#[allow(clippy::single_range_in_vec_init)]
 impl Selection {
     const LIMIT: u32 = 256;
 
@@ -198,10 +207,7 @@ impl Selection {
     }
 
     pub fn items(&self) -> Vec<u32> {
-        self.items
-            .iter()
-            .flat_map(|r| r.clone().into_iter())
-            .collect()
+        self.items.iter().flat_map(|r| r.clone()).collect()
     }
 
     fn add(&mut self, item: u32) {
@@ -211,33 +217,25 @@ impl Selection {
     fn add_all(&mut self, items: Range<u32>) {
         let mut choices: Vec<u32> = items
             .chain(self.items())
-            .collect::<std::collections::HashSet<u32>>()
+            .collect::<HashSet<u32>>()
             .into_iter()
             .collect();
 
         choices.sort();
 
         self.items = choices
-            .iter()
-            .skip(1)
-            .fold(Folder::new(choices[0]), |acc, i| acc.add(*i))
+            .into_iter()
+            .fold(Folder::new(), |acc, i| acc.add(i))
             .fin();
     }
 
     fn del(&mut self, item: u32) {
-        let mut choices = self.items();
-
-        choices.retain(|i| *i != item);
-
-        if choices.len() == 0 {
-            self.items = vec![];
-        } else {
-            self.items = choices
-                .iter()
-                .skip(1)
-                .fold(Folder::new(choices[0]), |acc, i| acc.add(*i))
-                .fin();
-        }
+        self.items = self
+            .items()
+            .into_iter()
+            .filter(|i| *i != item)
+            .fold(Folder::new(), |acc, i| acc.add(i))
+            .fin();
     }
 
     pub fn toggle(&mut self, item: u32) {
@@ -250,7 +248,7 @@ impl Selection {
 
     pub fn group_select(&mut self, item: u32) {
         if let Some(anchor) = self.last {
-            let (min, max) = (std::cmp::min(anchor, item), std::cmp::max(anchor, item));
+            let (min, max) = (cmp::min(anchor, item), cmp::max(anchor, item));
             self.add_all(min..max + 1)
         }
     }
@@ -264,20 +262,10 @@ impl Selection {
     }
 
     pub fn invert(&mut self) {
-        let choices = self.items();
-        let mut all: Vec<u32> = (0..Self::LIMIT).collect();
-
-        all.retain(|i| !choices.contains(i));
-
-        if all.len() == 0 {
-            self.items = vec![];
-        } else {
-            self.items = all
-                .iter()
-                .skip(1)
-                .fold(Folder::new(all[0]), |acc, i| acc.add(*i))
-                .fin();
-        }
+        self.items = (0..Self::LIMIT)
+            .filter(|i| !self.contains(*i))
+            .fold(Folder::new(), |acc, i| acc.add(i))
+            .fin();
     }
 }
 
@@ -296,8 +284,7 @@ fn test_sorted_vec_to_select() {
 
     let selection = choices
         .iter()
-        .skip(1)
-        .fold(Folder::new(choices[0]), |acc, i| acc.add(*i))
+        .fold(Folder::new(), |acc, i| acc.add(*i))
         .fin();
 
     assert_eq!(selection, vec![1..4, 7..8, 9..11])

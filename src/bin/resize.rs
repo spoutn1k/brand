@@ -63,7 +63,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
                 photo
                     .resize(2000, 2000, image::imageops::FilterType::Nearest)
-                    .save(&file.with_extension("jpg"))?;
+                    .save(file.with_extension("jpg"))?;
             }
             _ => (),
         }

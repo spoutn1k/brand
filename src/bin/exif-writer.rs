@@ -55,8 +55,8 @@ impl ExposureData {
             lens: self.lens.or(other.lens.clone()),
             description: self.description.or(other.description.clone()),
             comment: self.comment.or(other.comment.clone()),
-            date: self.date.or(other.date.clone()),
-            gps: self.gps.or(other.gps.clone()),
+            date: self.date.or(other.date),
+            gps: self.gps.or(other.gps),
         }
     }
 }
@@ -222,7 +222,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .map(
             |(index, line): (u32, String)| -> Result<Option<(u32, ExposureData)>, String> {
                 match exposure_tsv(&mut line.as_str()) {
-                    Ok(data) => Ok(Some((index as u32, data.complete(&template)))),
+                    Ok(data) => Ok(Some((index, data.complete(&template)))),
                     Err(_) if line.is_empty() => Ok(None),
                     Err(e) => Err(format!("Failed to parse line {index}: {e} `{line}`")),
                 }
@@ -230,7 +230,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         )
         .collect::<Result<Vec<_>, String>>()?
         .into_iter()
-        .filter_map(|e| e)
+        .flatten()
         .collect();
 
     exposures.sort_by(|lhs, rhs| lhs.0.partial_cmp(&rhs.0).unwrap());
@@ -283,18 +283,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         })
         .map(|(p, index_str)| {
             let path = p;
-            str::parse::<u32>(&index_str).and_then(|i| match files.get_mut(&i) {
-                Some(container) => Ok(container.push(path)),
+            str::parse::<u32>(&index_str).map(|i| match files.get_mut(&i) {
+                Some(container) => container.push(path),
                 None => {
                     files.insert(i, vec![path]);
-                    Ok(())
                 }
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
 
     for exposure_index in files.keys() {
-        if exposures.get(exposure_index).is_none() {
+        if !exposures.contains_key(exposure_index) {
             log::error!("No exposure data found for exposure number {exposure_index}");
         }
     }
@@ -324,7 +323,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     "-q",
                     "-overwrite_original",
                     &format!("-j={dump_file}"),
-                    &f,
+                    f,
                 ]);
 
                 log::debug!("{tagging:?}");

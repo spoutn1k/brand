@@ -27,7 +27,7 @@ fn process(photo: &DynamicImage, path: &Path) -> Result<(), Box<dyn Error>> {
     compress(photo.clone(), &path.with_extension("tiff"))?;
     <SupportedImage as Into<DynamicImage>>::into(format(photo.clone()))
         .resize(2000, 2000, FilterType::Nearest)
-        .save(&path.with_extension("jpg"))?;
+        .save(path.with_extension("jpg"))?;
 
     Ok(())
 }

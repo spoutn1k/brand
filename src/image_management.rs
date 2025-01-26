@@ -5,9 +5,9 @@ pub enum SupportedImage {
     Gray(GrayImage),
 }
 
-impl Into<DynamicImage> for SupportedImage {
-    fn into(self) -> DynamicImage {
-        match self {
+impl From<SupportedImage> for DynamicImage {
+    fn from(val: SupportedImage) -> DynamicImage {
+        match val {
             SupportedImage::RGB(image) => DynamicImage::ImageRgb8(image),
             SupportedImage::Gray(image) => DynamicImage::ImageLuma8(image),
         }

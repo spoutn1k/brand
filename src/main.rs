@@ -43,42 +43,38 @@ fn read_file(index: u32, file: web_sys::File) -> JsResult {
         // Create a Rust slice from the Uint8Array
         embed_file(index, &data.to_vec())
     });
-    reader.set_onloadend(Some(&closure.as_ref().unchecked_ref()));
+    reader.set_onloadend(Some(closure.as_ref().unchecked_ref()));
     closure.forget();
 
     let error_handler = Closure::<dyn Fn(_)>::new(move |_: web_sys::Event| {
         log::error!("Failed to read file !");
     });
-    reader.set_onerror(Some(&error_handler.as_ref().unchecked_ref()));
+    reader.set_onerror(Some(error_handler.as_ref().unchecked_ref()));
     error_handler.forget();
 
     Ok(())
 }
 
-fn setup_editor_from_files(files: &Vec<web_sys::FileSystemFileEntry>) -> JsResult {
+fn setup_editor_from_files(files: &[web_sys::FileSystemFileEntry]) -> JsResult {
     setup_roll_fields(&RollData::default())?;
 
     let mut index = HashMap::<u32, Vec<web_sys::FileSystemFileEntry>>::new();
     let re = regex::Regex::new(r"([0-9]+)").map_err(|e| e.to_string())?;
-    let _ = files
-        .into_iter()
-        .map(|f| (String::from(f.name()), f.to_owned()))
+    files
+        .iter()
+        .map(|f| (f.name(), f.to_owned()))
         .filter_map(|(name, file): (String, web_sys::FileSystemFileEntry)| {
-            match re.captures(&name) {
-                Some(value) => {
-                    let (index, _) = value.extract::<1>();
-                    Some((String::from(index), file))
-                }
-                None => None,
-            }
+            re.captures(&name).map(|value| {
+                let (index, _) = value.extract::<1>();
+                (String::from(index), file)
+            })
         })
         .for_each(|(index_str, file)| {
             str::parse::<u32>(&index_str)
-                .and_then(|i| match index.get_mut(&i) {
-                    Some(container) => Ok(container.push(file)),
+                .map(|i| match index.get_mut(&i) {
+                    Some(container) => container.push(file),
                     None => {
                         index.insert(i, vec![file]);
-                        Ok(())
                     }
                 })
                 .ok();
@@ -92,7 +88,7 @@ fn setup_editor_from_files(files: &Vec<web_sys::FileSystemFileEntry>) -> JsResul
         let sub_array = js_sys::Array::new();
 
         for fi in f {
-            sub_array.push(&fi);
+            sub_array.push(fi);
         }
 
         dest.set(&serde_wasm_bindgen::to_value(i).unwrap(), &sub_array);
@@ -185,7 +181,7 @@ fn setup_roll_fields(data: &RollData) -> JsResult {
     set_roll_handler(UIRollUpdate::Author, &author_input)?;
     set_roll_handler(UIRollUpdate::Make, &make_input)?;
     set_roll_handler(UIRollUpdate::Model, &model_input)?;
-    set_roll_handler(UIRollUpdate::ISO, &iso_input)?;
+    set_roll_handler(UIRollUpdate::Iso, &iso_input)?;
     set_roll_handler(UIRollUpdate::Film, &description_input)?;
 
     let reset_editor =
@@ -241,7 +237,7 @@ fn update_exposure_ui(index: u32, data: &UIExposureUpdate) -> JsResult {
         UIExposureUpdate::Comment(value) => (&format!("exposure-input-comment-{index}"), value),
         UIExposureUpdate::Date(value) => (&format!("exposure-input-date-{index}"), value),
         UIExposureUpdate::Lens(value) => (&format!("exposure-input-lens-{index}"), value),
-        UIExposureUpdate::GPS(value) => (&format!("exposure-input-gps-{index}"), value),
+        UIExposureUpdate::Gps(value) => (&format!("exposure-input-gps-{index}"), value),
     };
 
     query_id!(id, web_sys::HtmlInputElement).set_value(contents);
@@ -306,7 +302,7 @@ fn create_row(index: u32, selected: bool) -> JsResult {
     set_exposure_handler(index, UIExposureUpdate::Lens, &lens_input)?;
     set_exposure_handler(index, UIExposureUpdate::Comment, &comment_input)?;
     set_exposure_handler(index, UIExposureUpdate::Date, &date_input)?;
-    set_exposure_handler(index, UIExposureUpdate::GPS, &gps_input)?;
+    set_exposure_handler(index, UIExposureUpdate::Gps, &gps_input)?;
 
     let select_action =
         Closure::<dyn Fn(_) -> JsResult>::new(move |e: web_sys::MouseEvent| -> JsResult {
@@ -361,7 +357,7 @@ fn create_row(index: u32, selected: bool) -> JsResult {
 pub fn update_coords(index: u32, lat: f64, lon: f64) -> JsResult {
     controller::update(Update::ExposureField(
         index,
-        UIExposureUpdate::GPS(format!("{lat}, {lon}")),
+        UIExposureUpdate::Gps(format!("{lat}, {lon}")),
     ))
 }
 

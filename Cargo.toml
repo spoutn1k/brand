@@ -19,7 +19,7 @@ serde_json = "1.0.118"
 serde_with = { version = "3.8.3", features = ["chrono_0_4"] }
 sha2 = "0.10.8"
 simple_logger = { version = "5.0.0", features = ["stderr"] }
-tiff = { git = "https://github.com/spoutn1k/image-tiff", rev = "1c033289aefbbd015c4147822c6f1c7dc9f177f1" }
+tiff = { git = "https://github.com/image-rs/image-tiff", branch = "master", version = "0.9.1" }
 wasm-bindgen = { version = "0.2.92", features = ["serde_json"] }
 wasm-logger = "0.2.0"
 winnow = "0.6.13"

@@ -197,7 +197,7 @@ dependencies = [
  "serde_with",
  "sha2",
  "simple_logger",
- "tiff 0.9.1 (git+https://github.com/spoutn1k/image-tiff?rev=1c033289aefbbd015c4147822c6f1c7dc9f177f1)",
+ "tiff 0.9.1 (git+https://github.com/image-rs/image-tiff?branch=master)",
  "wasm-bindgen",
  "wasm-logger",
  "web-sys",
@@ -1370,7 +1370,7 @@ dependencies = [
 [[package]]
 name = "tiff"
 version = "0.9.1"
-source = "git+https://github.com/spoutn1k/image-tiff?rev=1c033289aefbbd015c4147822c6f1c7dc9f177f1#1c033289aefbbd015c4147822c6f1c7dc9f177f1"
+source = "git+https://github.com/image-rs/image-tiff?branch=master#d42e6be507a4c5d54445e86560b86d829ca52c51"
 dependencies = [
  "flate2",
  "jpeg-decoder",

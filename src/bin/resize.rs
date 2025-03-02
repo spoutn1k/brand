@@ -27,7 +27,7 @@ fn compress(photo: &DynamicImage, destination: &std::path::Path) -> Result<(), B
 
     match format(photo.clone()) {
         SupportedImage::RGB(photo) => {
-            encoder.write_image::<colortype::RGBA8>(photo.width(), photo.height(), &photo)?
+            encoder.write_image::<colortype::RGB8>(photo.width(), photo.height(), &photo)?
         }
 
         SupportedImage::Gray(photo) => {
@@ -57,7 +57,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         match file.clone().extension().map(|e| e.to_string_lossy()) {
             Some(e) if e.starts_with("tif") => {
                 let photo = ImageReader::open(&file)?.with_guessed_format()?.decode()?;
-                if e == "tiff" {
+                if e == "tif" {
                     compress(&photo, &file.with_extension("tiff"))?;
                 }
 

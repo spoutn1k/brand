@@ -9,7 +9,7 @@ use winnow::{
     combinator::{alt, empty, opt, separated_pair, seq},
     error::{StrContext, StrContextValue},
     token::take_till,
-    PResult, Parser as _,
+    ModalResult, Parser as _,
 };
 
 static TIMESTAMP_FORMAT: &str = "%Y %m %d %H %M %S";
@@ -133,7 +133,7 @@ pub fn expected(reason: &'static str) -> StrContext {
     StrContext::Expected(StrContextValue::Description(reason))
 }
 
-fn exposure_tsv(input: &mut &str) -> PResult<ExposureData> {
+fn exposure_tsv(input: &mut &str) -> ModalResult<ExposureData> {
     let format = || {
         alt((
             alphanumeric1.map(|m| Some(String::from(m))),

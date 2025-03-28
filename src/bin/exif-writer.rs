@@ -1,9 +1,15 @@
-use chrono::NaiveDateTime;
+use brand::image_management::{format, SupportedImage};
+use chrono::{DateTime, NaiveDateTime};
 use clap::Parser;
+use image::ImageReader;
 use regex::Regex;
-use serde::ser::{Serialize, SerializeStruct, Serializer};
 use simple_logger::SimpleLogger;
-use std::error::Error;
+use std::{error::Error, fs::File};
+use tiff::{
+    encoder::{colortype, Compression, Predictor, TiffEncoder},
+    ifd::{Directory, ProcessedEntry, Value},
+    tags::Tag,
+};
 use winnow::{
     ascii::{alphanumeric1, float, tab},
     combinator::{alt, empty, opt, separated_pair, seq},
@@ -43,6 +49,62 @@ struct ExposureData {
     gps: Option<(f64, f64)>,
 }
 
+impl From<ExposureData> for Directory<ProcessedEntry> {
+    fn from(e: ExposureData) -> Self {
+        let mut out = Self::new();
+
+        if let Some(value) = e.author {
+            out.insert(Tag::Artist, ProcessedEntry::new(Value::Ascii(value)));
+        }
+
+        if let Some(make) = e.make {
+            out.insert(Tag::Make, ProcessedEntry::new(Value::Ascii(make)));
+        }
+
+        if let Some(model) = e.model {
+            out.insert(Tag::Model, ProcessedEntry::new(Value::Ascii(model)));
+        }
+
+        match (e.description, e.comment) {
+            (Some(description), Some(comment)) => {
+                out.insert(
+                    Tag::ImageDescription,
+                    ProcessedEntry::new(Value::Ascii(format!("{description} - {comment}"))),
+                );
+            }
+            (Some(description), None) => {
+                out.insert(
+                    Tag::ImageDescription,
+                    ProcessedEntry::new(Value::Ascii(description)),
+                );
+            }
+            (None, Some(comment)) => {
+                out.insert(
+                    Tag::ImageDescription,
+                    ProcessedEntry::new(Value::Ascii(comment)),
+                );
+            }
+            _ => (),
+        }
+
+        if let Some(iso) = e.iso {
+            out.insert(
+                Tag::ISO,
+                ProcessedEntry::new(Value::Short(iso.parse().unwrap())),
+            );
+        }
+
+        if let Some(shutter_speed) = e.sspeed {
+            out.insert(
+                Tag::ShutterSpeedValue,
+                ProcessedEntry::new(Value::Short(shutter_speed.parse().unwrap())),
+            );
+        }
+
+        out
+    }
+}
+
 impl ExposureData {
     fn complete(self, other: &Self) -> Self {
         ExposureData {
@@ -61,74 +123,6 @@ impl ExposureData {
     }
 }
 
-impl Serialize for ExposureData {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut s = serializer.serialize_struct("ExposureData", 3)?;
-        if let Some(author) = &self.author {
-            s.serialize_field("Author", &author)?;
-            s.serialize_field("Artist", &author)?;
-        }
-        if let Some(make) = &self.make {
-            s.serialize_field("Make", &make)?;
-        }
-        if let Some(model) = &self.model {
-            s.serialize_field("Model", &model)?;
-        }
-        if let Some(comment) = &self.comment {
-            let description: String;
-            if let Some(film) = &self.description {
-                description = format!("{comment} - {film}");
-            } else {
-                description = format!("{comment} - Unknown film");
-            }
-
-            s.serialize_field("ImageDescription", &description)?;
-            s.serialize_field("Description", &description)?;
-        }
-        if let Some(timestamp) = &self.date {
-            s.serialize_field("alldates", &timestamp.format(TIMESTAMP_FORMAT).to_string())?;
-        }
-        if let Some(lens) = &self.lens {
-            s.serialize_field("focallength", &lens)?;
-        }
-        if let Some(iso) = &self.iso {
-            s.serialize_field("ISO", &iso)?;
-        }
-        if let Some(aperture) = &self.aperture {
-            s.serialize_field("FNumber", &aperture)?;
-            s.serialize_field("ApertureValue", &aperture)?;
-        }
-        if let Some(sspeed) = &self.sspeed {
-            s.serialize_field("shutterspeed", &sspeed)?;
-        }
-
-        if let Some(coords) = &self.gps {
-            let (lat, lon): (f64, f64);
-            if coords.0 < 0.0 {
-                s.serialize_field("GPSLatitudeRef", "S")?;
-                lat = -coords.0;
-            } else {
-                s.serialize_field("GPSLatitudeRef", "N")?;
-                lat = coords.0;
-            }
-            if coords.1 < 0.0 {
-                s.serialize_field("GPSLongitudeRef", "W")?;
-                lon = -coords.1;
-            } else {
-                s.serialize_field("GPSLongitudeRef", "E")?;
-                lon = coords.1;
-            }
-
-            s.serialize_field("GPSLatitude", &format!("{lat}"))?;
-            s.serialize_field("GPSLongitude", &format!("{lon}"))?;
-        }
-        s.end()
-    }
-}
-
 pub fn expected(reason: &'static str) -> StrContext {
     StrContext::Expected(StrContextValue::Description(reason))
 }
@@ -143,7 +137,7 @@ fn exposure_tsv(input: &mut &str) -> ModalResult<ExposureData> {
 
     let aperture = || {
         alt((
-            (opt("f"), float).map(|(_, m): (std::option::Option<&str>, f32)| Some(format!("{m}"))),
+            (opt("f"), float).map(|(_, m): (Option<&str>, f32)| Some(format!("{m}"))),
             empty.value(None),
         ))
     };
@@ -178,15 +172,13 @@ fn exposure_tsv(input: &mut &str) -> ModalResult<ExposureData> {
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Cli::parse();
 
-    if args.debug {
-        SimpleLogger::new()
-            .with_level(log::LevelFilter::Debug)
-            .init()?;
+    let level = if args.debug {
+        log::LevelFilter::Debug
     } else {
-        SimpleLogger::new()
-            .with_level(log::LevelFilter::Info)
-            .init()?;
-    }
+        log::LevelFilter::Info
+    };
+
+    SimpleLogger::new().with_level(level).init()?;
 
     let mut tse_file_path = args.dir.clone();
     tse_file_path.push("index.tse");
@@ -215,8 +207,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         },
     );
 
-    log::debug!("Default fields: {}", serde_json::to_string(&template)?);
-
     let mut exposures: Vec<(u32, ExposureData)> = (1..)
         .zip(exposures.into_iter())
         .map(
@@ -236,7 +226,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     exposures.sort_by(|lhs, rhs| lhs.0.partial_cmp(&rhs.0).unwrap());
     let mut last = None;
 
-    use chrono::DateTime;
     let exposures: std::collections::HashMap<u32, ExposureData> = exposures
         .into_iter()
         .map(|(i, mut data)| {
@@ -306,28 +295,33 @@ fn main() -> Result<(), Box<dyn Error>> {
             break;
         }
 
-        let hash = format!("photo-{index}");
-        let mut dump_file = std::env::temp_dir();
-        dump_file.push(format!("{hash}.json"));
-        let dump = std::fs::File::create(&dump_file)?;
-        let dump_file = dump_file.as_os_str().to_str().unwrap();
-        serde_json::to_writer(dump, &data)?;
-
         targets
             .unwrap()
             .iter()
-            .map(|f: &String| {
-                let mut tagging = std::process::Command::new("exiftool");
-                tagging.args([
-                    "-m",
-                    "-q",
-                    "-overwrite_original",
-                    &format!("-j={dump_file}"),
-                    f,
-                ]);
+            .map(|file: &String| -> Result<(), Box<dyn Error>> {
+                let photo = ImageReader::open(&file)?.with_guessed_format()?.decode()?;
 
-                log::debug!("{tagging:?}");
-                tagging.spawn()
+                let exif = Directory::<ProcessedEntry>::from(data.clone());
+                let mut encoder = TiffEncoder::new(File::create(format!("{file}-exifed"))?)?
+                    .with_compression(Compression::Lzw)
+                    .with_predictor(Predictor::Horizontal)
+                    .with_exif(exif);
+
+                match format(photo.clone()) {
+                    SupportedImage::RGB(photo) => encoder.write_image::<colortype::RGB8>(
+                        photo.width(),
+                        photo.height(),
+                        &photo,
+                    )?,
+
+                    SupportedImage::Gray(photo) => encoder.write_image::<colortype::Gray8>(
+                        photo.width(),
+                        photo.height(),
+                        &photo,
+                    )?,
+                }
+
+                Ok(())
             })
             .collect::<Result<Vec<_>, _>>()?;
     }

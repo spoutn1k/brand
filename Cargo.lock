@@ -197,6 +197,7 @@ dependencies = [
  "image 0.25.6",
  "js-sys",
  "log",
+ "num-rational",
  "regex",
  "serde",
  "serde-wasm-bindgen",

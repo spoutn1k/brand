@@ -7,8 +7,8 @@ use simple_logger::SimpleLogger;
 use std::{error::Error, fs::File};
 use tiff::{
     encoder::{colortype, Compression, Predictor, TiffEncoder},
-    ifd::{Directory, ProcessedEntry, Value},
-    tags::Tag,
+    ifd::{Directory, ImageFileDirectory, ProcessedEntry, Value},
+    tags::{GpsTag, Tag},
 };
 use winnow::{
     ascii::{alphanumeric1, float, tab},
@@ -47,6 +47,72 @@ struct ExposureData {
     comment: Option<String>,
     date: Option<NaiveDateTime>,
     gps: Option<(f64, f64)>,
+}
+
+trait GpsRef {
+    fn gps_ref(&self) -> ProcessedEntry;
+}
+
+impl GpsRef for f64 {
+    /// Converts a GPS coordinate to the format expected by the EXIF standard
+    fn gps_ref(&self) -> ProcessedEntry {
+        let mut components = vec![
+            Value::Rational(*self as u32, 1),
+            Value::Rational((self.fract() * 60.0) as u32, 1),
+        ];
+
+        let sec_raw = (self * 60.0).fract() * 60.0;
+
+        components.push(
+            match num_rational::Ratio::<u32>::approximate_float_unsigned(sec_raw) {
+                Some(sec) => Value::Rational(*sec.numer(), *sec.denom()),
+                None => Value::Rational(sec_raw as u32, 1),
+            },
+        );
+
+        ProcessedEntry::new_vec(&components)
+    }
+}
+
+impl From<ExposureData> for ImageFileDirectory<GpsTag, ProcessedEntry> {
+    fn from(e: ExposureData) -> Self {
+        let mut out = Self::new();
+
+        if let Some(coords) = &e.gps {
+            let (lat, lon): (f64, f64);
+            if coords.0 < 0.0 {
+                out.insert(
+                    GpsTag::GPSLatitudeRef,
+                    ProcessedEntry::new(Value::Ascii("S".into())),
+                );
+                lat = -coords.0;
+            } else {
+                out.insert(
+                    GpsTag::GPSLatitudeRef,
+                    ProcessedEntry::new(Value::Ascii("N".into())),
+                );
+                lat = coords.0;
+            }
+            if coords.1 < 0.0 {
+                out.insert(
+                    GpsTag::GPSLongitudeRef,
+                    ProcessedEntry::new(Value::Ascii("W".into())),
+                );
+                lon = -coords.1;
+            } else {
+                out.insert(
+                    GpsTag::GPSLongitudeRef,
+                    ProcessedEntry::new(Value::Ascii("E".into())),
+                );
+                lon = coords.1;
+            }
+
+            out.insert(GpsTag::GPSLatitude, lat.gps_ref());
+            out.insert(GpsTag::GPSLongitude, lon.gps_ref());
+        }
+
+        out
+    }
 }
 
 impl From<ExposureData> for Directory<ProcessedEntry> {
@@ -163,7 +229,6 @@ fn exposure_tsv(input: &mut &str) -> ModalResult<ExposureData> {
                 separated_pair(float, ", ", float).map(Some),
                 empty.value(None)
             )),
-        // default initialization also works
         ..Default::default()
     }}
     .parse_next(input)
@@ -302,10 +367,12 @@ fn main() -> Result<(), Box<dyn Error>> {
                 let photo = ImageReader::open(&file)?.with_guessed_format()?.decode()?;
 
                 let exif = Directory::<ProcessedEntry>::from(data.clone());
+                let gps = ImageFileDirectory::<GpsTag, ProcessedEntry>::from(data.clone());
                 let mut encoder = TiffEncoder::new(File::create(format!("{file}-exifed"))?)?
                     .with_compression(Compression::Lzw)
                     .with_predictor(Predictor::Horizontal)
-                    .with_exif(exif);
+                    .with_exif(exif)
+                    .with_gps(gps);
 
                 match format(photo.clone()) {
                     SupportedImage::RGB(photo) => encoder.write_image::<colortype::RGB8>(

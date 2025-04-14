@@ -366,13 +366,14 @@ fn main() -> Result<(), Box<dyn Error>> {
             .map(|file: &String| -> Result<(), Box<dyn Error>> {
                 let photo = ImageReader::open(&file)?.with_guessed_format()?.decode()?;
 
-                let exif = Directory::<ProcessedEntry>::from(data.clone());
-                let gps = ImageFileDirectory::<GpsTag, ProcessedEntry>::from(data.clone());
-                let mut encoder = TiffEncoder::new(File::create(format!("{file}-exifed"))?)?
+                let buffer_name = format!("{file}-exifed");
+                let buffer = File::create(&buffer_name)?;
+
+                let mut encoder = TiffEncoder::new(buffer)?
                     .with_compression(Compression::Lzw)
                     .with_predictor(Predictor::Horizontal)
-                    .with_exif(exif)
-                    .with_gps(gps);
+                    .with_exif(data.clone().into())
+                    .with_gps(data.clone().into());
 
                 match format(photo.clone()) {
                     SupportedImage::RGB(photo) => encoder.write_image::<colortype::RGB8>(
@@ -387,6 +388,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                         &photo,
                     )?,
                 }
+
+                std::fs::rename(&buffer_name, file)?;
 
                 Ok(())
             })

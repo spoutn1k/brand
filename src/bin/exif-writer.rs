@@ -1,21 +1,20 @@
-use brand::image_management::{format, SupportedImage};
+use brand::image_management::{SupportedImage, format};
 use chrono::{DateTime, NaiveDateTime};
 use clap::Parser;
-use image::ImageReader;
+use image::{ImageEncoder, ImageReader, codecs::jpeg::JpegEncoder};
 use regex::Regex;
 use simple_logger::SimpleLogger;
-use std::{error::Error, fs::File};
+use std::{collections::HashMap, error::Error, fs::File, io, path::PathBuf};
 use tiff::{
-    encoder::{colortype, Compression, Predictor, TiffEncoder},
-    ifd::{Directory, ImageFileDirectory, ProcessedEntry, Value},
-    tags::{GpsTag, Tag},
+    encoder::{Compression, Predictor, Rational, TiffEncoder, colortype},
+    tags::Tag,
 };
 use winnow::{
+    ModalResult, Parser as _,
     ascii::{alphanumeric1, float, tab},
     combinator::{alt, empty, opt, separated_pair, seq},
     error::{StrContext, StrContextValue},
     token::take_till,
-    ModalResult, Parser as _,
 };
 
 static TIMESTAMP_FORMAT: &str = "%Y %m %d %H %M %S";
@@ -26,7 +25,7 @@ struct Cli {
     /// Path to the exposure folder containing the index.tse file
     #[arg(required = true)]
     #[clap(default_value = ".")]
-    dir: std::path::PathBuf,
+    dir: PathBuf,
 
     /// Turn debugging information on
     #[arg(short, long)]
@@ -50,124 +49,116 @@ struct ExposureData {
 }
 
 trait GpsRef {
-    fn gps_ref(&self) -> ProcessedEntry;
+    fn format(&self) -> Vec<Rational>;
 }
 
 impl GpsRef for f64 {
     /// Converts a GPS coordinate to the format expected by the EXIF standard
-    fn gps_ref(&self) -> ProcessedEntry {
-        let mut components = vec![
-            Value::Rational(*self as u32, 1),
-            Value::Rational((self.fract() * 60.0) as u32, 1),
-        ];
+    fn format(&self) -> Vec<Rational> {
+        let deg = Rational {
+            n: *self as u32,
+            d: 1,
+        };
+        let min = Rational {
+            n: (self.fract() * 60.0) as u32,
+            d: 1,
+        };
 
         let sec_raw = (self * 60.0).fract() * 60.0;
 
-        components.push(
-            match num_rational::Ratio::<u32>::approximate_float_unsigned(sec_raw) {
-                Some(sec) => Value::Rational(*sec.numer(), *sec.denom()),
-                None => Value::Rational(sec_raw as u32, 1),
+        let sec = match num_rational::Ratio::<u32>::approximate_float_unsigned(sec_raw) {
+            Some(sec) => Rational {
+                n: *sec.numer(),
+                d: *sec.denom(),
             },
-        );
+            None => Rational {
+                n: sec_raw as u32,
+                d: 1,
+            },
+        };
 
-        ProcessedEntry::new_vec(&components)
+        vec![deg, min, sec]
     }
 }
 
-impl From<ExposureData> for ImageFileDirectory<GpsTag, ProcessedEntry> {
-    fn from(e: ExposureData) -> Self {
-        let mut out = Self::new();
+/// Tag space of GPS ifds
+enum GpsTag {
+    //GPSVersionID,
+    GPSLatitudeRef,
+    GPSLatitude,
+    GPSLongitudeRef,
+    GPSLongitude,
+    //GPSAltitudeRef,
+    //GPSAltitude,
+    //GPSTimeStamp,
+    //GPSSatellites,
+    //GPSStatus,
+    //GPSMeasureMode,
+    //GPSDOP,
+    //GPSSpeedRef,
+    //GPSSpeed,
+    //GPSTrackRef,
+    //GPSTrack,
+    //GPSImgDirectionRef,
+    //GPSImgDirection,
+    //GPSMapDatum,
+    //GPSDestLatitudeRef,
+    //GPSDestLatitude,
+    //GPSDestLongitudeRef,
+    //GPSDestLongitude,
+    //GPSDestBearingRef,
+    //GPSDestBearing,
+    //GPSDestDistanceRef,
+    //GPSDestDistance,
+    //GPSProcessingMethod,
+    //GPSAreaInformation,
+    //GPSDateStamp,
+    //GPSDifferential,
+    //GPSHPositioningError,
+}
 
-        if let Some(coords) = &e.gps {
-            let (lat, lon): (f64, f64);
-            if coords.0 < 0.0 {
-                out.insert(
-                    GpsTag::GPSLatitudeRef,
-                    ProcessedEntry::new(Value::Ascii("S".into())),
-                );
-                lat = -coords.0;
-            } else {
-                out.insert(
-                    GpsTag::GPSLatitudeRef,
-                    ProcessedEntry::new(Value::Ascii("N".into())),
-                );
-                lat = coords.0;
-            }
-            if coords.1 < 0.0 {
-                out.insert(
-                    GpsTag::GPSLongitudeRef,
-                    ProcessedEntry::new(Value::Ascii("W".into())),
-                );
-                lon = -coords.1;
-            } else {
-                out.insert(
-                    GpsTag::GPSLongitudeRef,
-                    ProcessedEntry::new(Value::Ascii("E".into())),
-                );
-                lon = coords.1;
-            }
-
-            out.insert(GpsTag::GPSLatitude, lat.gps_ref());
-            out.insert(GpsTag::GPSLongitude, lon.gps_ref());
-        }
-
-        out
+impl From<GpsTag> for Tag {
+    fn from(tag: GpsTag) -> Self {
+        Tag::Unknown(u16::from(tag))
     }
 }
 
-impl From<ExposureData> for Directory<ProcessedEntry> {
-    fn from(e: ExposureData) -> Self {
-        let mut out = Self::new();
-
-        if let Some(value) = e.author {
-            out.insert(Tag::Artist, ProcessedEntry::new(Value::Ascii(value)));
+impl From<GpsTag> for u16 {
+    fn from(tag: GpsTag) -> Self {
+        match tag {
+            //GpsTag::GPSVersionID => 0x0000,
+            GpsTag::GPSLatitudeRef => 0x0001,
+            GpsTag::GPSLatitude => 0x0002,
+            GpsTag::GPSLongitudeRef => 0x0003,
+            GpsTag::GPSLongitude => 0x0004,
+            //GpsTag::GPSAltitudeRef => 0x0005,
+            //GpsTag::GPSAltitude => 0x0006,
+            //GpsTag::GPSTimeStamp => 0x0007,
+            //GpsTag::GPSSatellites => 0x0008,
+            //GpsTag::GPSStatus => 0x0009,
+            //GpsTag::GPSMeasureMode => 0x000a,
+            //GpsTag::GPSDOP => 0x000b,
+            //GpsTag::GPSSpeedRef => 0x000c,
+            //GpsTag::GPSSpeed => 0x000d,
+            //GpsTag::GPSTrackRef => 0x000e,
+            //GpsTag::GPSTrack => 0x000f,
+            //GpsTag::GPSImgDirectionRef => 0x0010,
+            //GpsTag::GPSImgDirection => 0x0011,
+            //GpsTag::GPSMapDatum => 0x0012,
+            //GpsTag::GPSDestLatitudeRef => 0x0013,
+            //GpsTag::GPSDestLatitude => 0x0014,
+            //GpsTag::GPSDestLongitudeRef => 0x0015,
+            //GpsTag::GPSDestLongitude => 0x0016,
+            //GpsTag::GPSDestBearingRef => 0x0017,
+            //GpsTag::GPSDestBearing => 0x0018,
+            //GpsTag::GPSDestDistanceRef => 0x0019,
+            //GpsTag::GPSDestDistance => 0x001a,
+            //GpsTag::GPSProcessingMethod => 0x001b,
+            //GpsTag::GPSAreaInformation => 0x001c,
+            //GpsTag::GPSDateStamp => 0x001d,
+            //GpsTag::GPSDifferential => 0x001e,
+            //GpsTag::GPSHPositioningError => 0x001f,
         }
-
-        if let Some(make) = e.make {
-            out.insert(Tag::Make, ProcessedEntry::new(Value::Ascii(make)));
-        }
-
-        if let Some(model) = e.model {
-            out.insert(Tag::Model, ProcessedEntry::new(Value::Ascii(model)));
-        }
-
-        match (e.description, e.comment) {
-            (Some(description), Some(comment)) => {
-                out.insert(
-                    Tag::ImageDescription,
-                    ProcessedEntry::new(Value::Ascii(format!("{description} - {comment}"))),
-                );
-            }
-            (Some(description), None) => {
-                out.insert(
-                    Tag::ImageDescription,
-                    ProcessedEntry::new(Value::Ascii(description)),
-                );
-            }
-            (None, Some(comment)) => {
-                out.insert(
-                    Tag::ImageDescription,
-                    ProcessedEntry::new(Value::Ascii(comment)),
-                );
-            }
-            _ => (),
-        }
-
-        if let Some(iso) = e.iso {
-            out.insert(
-                Tag::ISO,
-                ProcessedEntry::new(Value::Short(iso.parse().unwrap())),
-            );
-        }
-
-        if let Some(shutter_speed) = e.sspeed {
-            out.insert(
-                Tag::ShutterSpeedValue,
-                ProcessedEntry::new(Value::Short(shutter_speed.parse().unwrap())),
-            );
-        }
-
-        out
     }
 }
 
@@ -186,6 +177,84 @@ impl ExposureData {
             date: self.date.or(other.date),
             gps: self.gps.or(other.gps),
         }
+    }
+
+    fn encode_exif<W: std::io::Write + std::io::Seek>(
+        &self,
+        encoder: &mut TiffEncoder<W>,
+    ) -> Result<(), tiff::TiffError> {
+        let gps_off = &self
+            .gps
+            .map(|coords| {
+                let mut gps = encoder.extra_directory()?;
+
+                let (lat, lon): (f64, f64);
+                if coords.0 < 0.0 {
+                    gps.write_tag(GpsTag::GPSLatitudeRef.into(), "S")?;
+                    lat = -coords.0;
+                } else {
+                    gps.write_tag(GpsTag::GPSLatitudeRef.into(), "N")?;
+                    lat = coords.0;
+                }
+
+                if coords.1 < 0.0 {
+                    gps.write_tag(GpsTag::GPSLongitudeRef.into(), "W")?;
+                    lon = -coords.1;
+                } else {
+                    gps.write_tag(GpsTag::GPSLongitudeRef.into(), "E")?;
+                    lon = coords.1;
+                }
+
+                gps.write_tag(GpsTag::GPSLatitude.into(), lat.format().as_slice())?;
+                gps.write_tag(GpsTag::GPSLongitude.into(), lon.format().as_slice())?;
+
+                gps.finish_with_offsets()
+            })
+            .and_then(|r| r.ok());
+
+        let mut dir = encoder.image_directory()?;
+        if let Some(off) = gps_off {
+            dir.write_tag(Tag::GpsDirectory, off.offset)?;
+        }
+
+        if let Some(value) = &self.author {
+            dir.write_tag(Tag::Artist, value.as_str())?;
+        }
+
+        if let Some(make) = &self.make {
+            dir.write_tag(Tag::Make, make.as_str())?;
+        }
+
+        if let Some(model) = &self.model {
+            dir.write_tag(Tag::Model, model.as_str())?;
+        }
+
+        match (&self.description, &self.comment) {
+            (Some(description), Some(comment)) => {
+                dir.write_tag(
+                    Tag::ImageDescription,
+                    format!("{description} - {comment}").as_str(),
+                )?;
+            }
+            (Some(description), None) => {
+                dir.write_tag(Tag::ImageDescription, description.as_str())?;
+            }
+            (None, Some(comment)) => {
+                dir.write_tag(Tag::ImageDescription, comment.as_str())?;
+            }
+            _ => (),
+        }
+
+        if let Some(iso) = &self.iso {
+            let iso = iso.parse::<u16>().unwrap();
+            dir.write_tag(Tag::Unknown(0x8827), iso)?;
+        }
+
+        if let Some(shutter_speed) = &self.sspeed {
+            dir.write_tag(Tag::Unknown(0x9201), shutter_speed.parse::<u16>().unwrap())?;
+        }
+
+        dir.finish()
     }
 }
 
@@ -232,6 +301,70 @@ fn exposure_tsv(input: &mut &str) -> ModalResult<ExposureData> {
         ..Default::default()
     }}
     .parse_next(input)
+}
+
+fn encode_jpeg(image: &PathBuf, data: &ExposureData) -> Result<(), Box<dyn Error>> {
+    let photo = ImageReader::open(&image)?
+        .with_guessed_format()?
+        .decode()?
+        .resize(2000, 2000, image::imageops::FilterType::Lanczos3);
+
+    let buffer_name = image.with_extension("jpeg-exifed");
+    let buffer = File::create(&buffer_name)?;
+
+    let mut f = io::Cursor::new(Vec::new());
+    let mut encoder = TiffEncoder::new(&mut f)?;
+
+    data.encode_exif(&mut encoder)?;
+
+    let jpg_encoder = JpegEncoder::new_with_quality(buffer, 90).with_exif_metadata(f.into_inner());
+
+    match format(photo) {
+        SupportedImage::RGB(photo) => {
+            jpg_encoder.write_image(
+                &photo,
+                photo.height(),
+                photo.width(),
+                image::ColorType::Rgb8.into(),
+            )?;
+        }
+        SupportedImage::Gray(photo) => {
+            jpg_encoder.write_image(
+                &photo,
+                photo.height(),
+                photo.width(),
+                image::ColorType::L8.into(),
+            )?;
+        }
+    }
+
+    std::fs::rename(&buffer_name, image.with_extension("jpg"))?;
+    Ok(())
+}
+
+fn encode_tiff(image: &PathBuf, data: &ExposureData) -> Result<(), Box<dyn Error>> {
+    let photo = ImageReader::open(&image)?.with_guessed_format()?.decode()?;
+
+    let buffer_name = image.with_extension("tiff-exifed");
+    let buffer = File::create(&buffer_name)?;
+
+    let mut encoder = TiffEncoder::new(buffer)?
+        .with_compression(Compression::Lzw)
+        .with_predictor(Predictor::Horizontal);
+
+    data.encode_exif(&mut encoder)?;
+
+    match format(photo) {
+        SupportedImage::RGB(photo) => {
+            encoder.write_image::<colortype::RGB8>(photo.width(), photo.height(), &photo)?;
+        }
+        SupportedImage::Gray(photo) => {
+            encoder.write_image::<colortype::Gray8>(photo.width(), photo.height(), &photo)?;
+        }
+    }
+
+    std::fs::rename(&buffer_name, image.with_extension("tiff"))?;
+    Ok(())
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -291,7 +424,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     exposures.sort_by(|lhs, rhs| lhs.0.partial_cmp(&rhs.0).unwrap());
     let mut last = None;
 
-    let exposures: std::collections::HashMap<u32, ExposureData> = exposures
+    let exposures: HashMap<u32, ExposureData> = exposures
         .into_iter()
         .map(|(i, mut data)| {
             match (data.date, last) {
@@ -310,7 +443,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         })
         .collect();
 
-    let mut files = std::collections::HashMap::<u32, Vec<String>>::new();
+    let mut files = HashMap::<u32, Vec<PathBuf>>::new();
     let re = Regex::new(r"([0-9]+)").unwrap();
 
     let out = std::fs::read_dir(args.dir)?
@@ -318,7 +451,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .collect::<Result<Vec<_>, std::io::Error>>()?;
     out.into_iter()
         .filter(|p| p.file_name().is_some())
-        .filter_map(|p: std::path::PathBuf| {
+        .filter_map(|p: PathBuf| {
             let name = p
                 .file_name()
                 .and_then(|s| s.to_str())
@@ -327,10 +460,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             match re.captures(&name) {
                 Some(value) => {
                     let (index, _) = value.extract::<1>();
-                    Some((
-                        p.as_os_str().to_str().map(String::from).unwrap(),
-                        String::from(index),
-                    ))
+                    Some((p, String::from(index)))
                 }
                 None => None,
             }
@@ -360,40 +490,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             break;
         }
 
-        targets
+        let _errs = targets
             .unwrap()
             .iter()
-            .map(|file: &String| -> Result<(), Box<dyn Error>> {
-                let photo = ImageReader::open(&file)?.with_guessed_format()?.decode()?;
-
-                let buffer_name = format!("{file}-exifed");
-                let buffer = File::create(&buffer_name)?;
-
-                let mut encoder = TiffEncoder::new(buffer)?
-                    .with_compression(Compression::Lzw)
-                    .with_predictor(Predictor::Horizontal)
-                    .with_exif(data.clone().into())
-                    .with_gps(data.clone().into());
-
-                match format(photo.clone()) {
-                    SupportedImage::RGB(photo) => encoder.write_image::<colortype::RGB8>(
-                        photo.width(),
-                        photo.height(),
-                        &photo,
-                    )?,
-
-                    SupportedImage::Gray(photo) => encoder.write_image::<colortype::Gray8>(
-                        photo.width(),
-                        photo.height(),
-                        &photo,
-                    )?,
-                }
-
-                std::fs::rename(&buffer_name, file)?;
-
-                Ok(())
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+            .flat_map(|file: &PathBuf| vec![encode_jpeg(file, &data), encode_tiff(file, &data)])
+            .filter(|r| r.is_err());
     }
 
     Ok(())

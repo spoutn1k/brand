@@ -8,9 +8,7 @@ macro_rules! storage {
 }
 
 macro_rules! query_id {
-    ($id:expr, $type:ty) => {{
-        query_id!($id).dyn_into::<$type>()?
-    }};
+    ($id:expr, $type:ty) => {{ query_id!($id).dyn_into::<$type>()? }};
 
     ($id:expr) => {{
         web_sys::window()
@@ -32,20 +30,30 @@ macro_rules! query_selector {
             .ok_or(&format!("Failed to access element with {}", $selector))?
     }};
 
-    ($selector:expr, $type:ty) => {{
-        query_selector!($selector).dyn_into::<$type>()?
-    }};
+    ($selector:expr, $type:ty) => {{ query_selector!($selector).dyn_into::<$type>()? }};
 }
 
 macro_rules! roll_input {
-    ($field:ident, $placeholder:expr, $data:expr) => {{
+    ($field:ident, $data:expr) => {{
+        let tmp = query_id!(
+            &format!("roll-{}-input", stringify!($field)),
+            web_sys::HtmlInputElement
+        );
+
+        tmp.set_value($data.$field.as_ref().unwrap_or(&String::new()));
+
+        tmp
+    }};
+}
+
+macro_rules! roll_placeholder {
+    ($field:ident, $placeholder:expr) => {{
         let tmp = query_id!(
             &format!("roll-{}-input", stringify!($field)),
             web_sys::HtmlInputElement
         );
 
         tmp.set_attribute("placeholder", $placeholder)?;
-        tmp.set_value($data.$field.as_ref().unwrap_or(&String::new()));
 
         tmp
     }};

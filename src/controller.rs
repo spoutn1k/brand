@@ -1,6 +1,7 @@
 use crate::{
-    models::{Data, ExposureSpecificData, Selection, MAX_EXPOSURES},
-    update_exposure_ui, JsResult,
+    JsResult,
+    models::{Data, ExposureSpecificData, MAX_EXPOSURES, Selection},
+    update_exposure_ui,
 };
 use chrono::NaiveDateTime;
 use std::convert::TryInto;
@@ -206,6 +207,7 @@ fn preview_exposure_cancel(index: u32) -> JsResult {
 }
 
 fn exposure_update_image(index: u32, data: String) -> JsResult {
+    log::info!("Updating image for exposure {index}");
     let mut image_cache = image_cache!();
 
     image_cache.insert(index, data);

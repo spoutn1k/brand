@@ -1,9 +1,44 @@
+use wasm_bindgen::JsValue;
+
+#[derive(Debug, thiserror::Error)]
+pub enum MacroError {
+    #[error("Failed to access global `window`")]
+    NoWindow,
+    #[error("Failed to access `document` on global `window`")]
+    NoDocument,
+    #[error("Failed to access `session_storage` on global `window`")]
+    NoStorage,
+    #[error("Failed to access element with id {0}")]
+    NoElementId(String),
+    #[error("Query returned no results: {0}")]
+    SelectorFailed(String),
+    #[error("No target for event !")]
+    NoTarget,
+}
+
+impl From<MacroError> for JsValue {
+    fn from(err: MacroError) -> Self {
+        JsValue::from_str(&err.to_string())
+    }
+}
+
+macro_rules! body {
+    () => {{
+        web_sys::window()
+            .ok_or(MacroError::NoWindow)?
+            .document()
+            .ok_or(MacroError::NoDocument)?
+            .body()
+            .ok_or(MacroError::NoDocument)?
+    }};
+}
+
 macro_rules! storage {
     () => {{
         web_sys::window()
-            .ok_or("no global `window` exists")?
+            .ok_or(MacroError::NoWindow)?
             .session_storage()?
-            .ok_or("No storage for session !")?
+            .ok_or(MacroError::NoStorage)?
     }};
 }
 
@@ -12,22 +47,22 @@ macro_rules! query_id {
 
     ($id:expr) => {{
         web_sys::window()
-            .ok_or("No window")?
+            .ok_or(MacroError::NoWindow)?
             .document()
-            .ok_or("no document on window")?
+            .ok_or(MacroError::NoDocument)?
             .get_element_by_id($id)
-            .ok_or(&format!("Failed to access element of id {}", $id))?
+            .ok_or(MacroError::NoElementId($id.to_string()))?
     }};
 }
 
 macro_rules! query_selector {
     ($selector:expr) => {{
         web_sys::window()
-            .ok_or("No window")?
+            .ok_or(MacroError::NoWindow)?
             .document()
-            .ok_or("no document on window")?
+            .ok_or(MacroError::NoDocument)?
             .query_selector($selector)?
-            .ok_or(&format!("Failed to access element with {}", $selector))?
+            .ok_or(MacroError::SelectorFailed($selector.to_string()))?
     }};
 
     ($selector:expr, $type:ty) => {{ query_selector!($selector).dyn_into::<$type>()? }};
@@ -62,20 +97,20 @@ macro_rules! roll_placeholder {
 macro_rules! el {
     ($tag:expr) => {
         web_sys::window()
-            .ok_or("No window")?
+            .ok_or(MacroError::NoWindow)?
             .document()
-            .ok_or("no document on window")?
+            .ok_or(MacroError::NoDocument)?
             .create_element($tag)?
     };
 
     ($tag:expr, $type:ty) => {
-        el!($tag).dyn_into::<$type>()?
+        el!($tag).unchecked_into::<$type>()
     };
 }
 
 macro_rules! event_target {
     ($event:expr) => {
-        $event.target().ok_or("No target for event !")?
+        $event.target().ok_or(MacroError::NoTarget)?
     };
 
     ($event:expr, $type:ty) => {
@@ -83,6 +118,7 @@ macro_rules! event_target {
     };
 }
 
+pub(crate) use body;
 pub(crate) use el;
 pub(crate) use event_target;
 pub(crate) use query_id;

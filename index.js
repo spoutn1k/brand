@@ -49,11 +49,3 @@ function set_marker(lat, lng) {
 
     marker = L.marker([lat, lng]).addTo(map);
 }
-
-function get_raw_handles() {
-    return filehandles
-}
-
-function set_raw_handles(value) {
-    filehandles = value
-}

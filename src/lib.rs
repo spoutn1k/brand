@@ -5,78 +5,93 @@ pub mod macros;
 pub mod models;
 
 use crate::{
-    macros::{el, event_target, query_id, query_selector, roll_input, roll_placeholder, storage},
+    macros::{
+        MacroError, body, el, event_target, query_id, query_selector, roll_input, roll_placeholder,
+        storage,
+    },
     models::{Data, ExposureSpecificData, RollData},
 };
-use base64::prelude::*;
 use controller::{UIExposureUpdate, UIRollUpdate, Update};
 use futures_lite::{AsyncReadExt, AsyncWriteExt, StreamExt};
-use image::{ImageReader, codecs::jpeg::JpegEncoder, imageops::FilterType};
-use std::collections::HashMap;
+use image::{ImageFormat, ImageReader, codecs::jpeg::JpegEncoder, imageops::FilterType};
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::HashMap,
+    io::Cursor,
+    path::{Path, PathBuf},
+};
 use wasm_bindgen::prelude::*;
 use web_sys::Blob;
 
 pub type JsResult<T = ()> = Result<T, JsValue>;
+
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error(transparent)]
+    IoError(#[from] std::io::Error),
+    #[error("JS failure: {0}")]
+    Js(String),
+    #[error(transparent)]
+    ChannelSend(#[from] async_channel::SendError<ProcessStatus>),
+    #[error(transparent)]
+    Serde(#[from] serde_json::Error),
+    #[error(transparent)]
+    Macro(#[from] crate::macros::MacroError),
+    #[error("Missing key from storage: {0}")]
+    MissingKey(String),
+}
+
+impl From<JsValue> for Error {
+    fn from(value: JsValue) -> Self {
+        Error::Js(
+            value
+                .as_string()
+                .unwrap_or_else(|| "Unknown JS error".to_string()),
+        )
+    }
+}
+
+impl From<Error> for JsValue {
+    fn from(value: Error) -> Self {
+        JsValue::from_str(&value.to_string())
+    }
+}
 
 enum ProcessStatus {
     Success,
     Error(String),
 }
 
-fn process_exposure(
-    index: u32,
-    file: web_sys::File,
+async fn process_exposure(
+    metadata: &FileMetadata,
     s: async_channel::Sender<ProcessStatus>,
-) -> JsResult {
-    let reader = web_sys::FileReader::new()?;
+) -> Result<(), Error> {
+    let path = PathBuf::from("originals").join(&metadata.name);
+    let photo_data = web_fs::read(path).await?;
 
-    let r = reader.clone();
-    let closure = Closure::once(move |_: web_sys::Event| {
-        let photo_data = js_sys::Uint8Array::new(&r.result().unwrap()).to_vec();
+    web_fs::File::create(format!("exposure-{}.tif", metadata.index))
+        .await?
+        .write_all(&photo_data)
+        .await?;
 
-        wasm_bindgen_futures::spawn_local(async move {
-            web_fs::File::create(format!("exposure-{index}.tif"))
-                .await
-                .unwrap()
-                .write_all(&photo_data)
-                .await
-                .unwrap();
+    s.send(ProcessStatus::Success).await?;
 
-            s.send(ProcessStatus::Success).await.unwrap();
-
-            drop(s);
-        });
-    });
-    reader.set_onloadend(Some(closure.as_ref().unchecked_ref()));
-    closure.forget();
-
-    let error_handler = Closure::<dyn Fn(_)>::new(move |_: web_sys::Event| {
-        log::error!("Failed to read file !");
-    });
-    reader.set_onerror(Some(error_handler.as_ref().unchecked_ref()));
-    error_handler.forget();
-
-    reader.read_as_array_buffer(&file)?;
+    drop(s);
 
     Ok(())
 }
 
-async fn process_images() -> JsResult {
-    let images = get_handles();
-
-    let data: Data = serde_json::from_str(&storage!().get_item("data")?.ok_or("No data")?)
-        .map_err(|e| e.to_string())?;
+async fn process_images() -> Result<(), Error> {
+    let data: Vec<FileMetadata> = serde_json::from_str(
+        &storage!()
+            .get_item("metadata")?
+            .ok_or(Error::MissingKey("metadata".into()))?,
+    )?;
 
     let (s, r) = async_channel::unbounded();
 
-    for (index, entry) in images.into_iter() {
-        let s = s.clone();
-        let file_load = Closure::once(move |f: web_sys::File| -> JsResult {
-            process_exposure(index.clone(), f, s.clone());
-            Ok(())
-        });
-        entry.file_with_callback(file_load.as_ref().unchecked_ref());
-        file_load.forget();
+    for entry in data {
+        process_exposure(&entry, s.clone()).await?;
     }
 
     drop(s);
@@ -93,29 +108,32 @@ async fn process_images() -> JsResult {
     log::info!("All exposures processed");
 
     let mut archive = vec![];
-    let mut archive_builder = tar::Builder::new(std::io::Cursor::new(&mut archive));
+    let mut archive_builder = tar::Builder::new(Cursor::new(&mut archive));
 
-    let mut stream = web_fs::read_dir(".").await.unwrap();
+    let mut stream = web_fs::read_dir(".").await?;
     while let Some(entry) = stream.next().await {
-        let entry = entry.unwrap();
+        let entry = entry?;
+
+        if entry.file_type().await?.is_dir() {
+            continue;
+        }
+
         log::info!("Found entry: {:?}", entry);
 
-        let mut file = web_fs::File::open(entry.path()).await.unwrap();
+        let mut file = web_fs::File::open(entry.path()).await?;
         let mut buffer = vec![];
-        file.read_to_end(&mut buffer).await.unwrap();
+        file.read_to_end(&mut buffer).await?;
 
         let mut header = tar::Header::new_gnu();
         header.set_size(buffer.len() as u64);
         header.set_mode(0o644);
         header.set_cksum();
 
-        archive_builder
-            .append_data(
-                &mut header,
-                entry.path().file_name().unwrap(),
-                std::io::Cursor::new(buffer),
-            )
-            .unwrap();
+        archive_builder.append_data(
+            &mut header,
+            entry.path().file_name().ok_or(JsValue::from_str("wow"))?,
+            Cursor::new(buffer),
+        )?;
     }
 
     drop(archive_builder);
@@ -127,9 +145,8 @@ async fn process_images() -> JsResult {
     let blob = Blob::new_with_u8_array_sequence_and_options(
         &array,
         web_sys::BlobPropertyBag::new().type_("application/x-tar"),
-    )
-    .unwrap();
-    let download_url = web_sys::Url::create_object_url_with_blob(&blob).unwrap();
+    )?;
+    let download_url = web_sys::Url::create_object_url_with_blob(&blob)?;
     log::info!("Download URL: {}", download_url);
 
     let element = el!("a", web_sys::HtmlElement);
@@ -137,12 +154,7 @@ async fn process_images() -> JsResult {
     //element.set_attribute("download", &filename)?;
     element.style().set_property("display", "none")?;
 
-    let body = web_sys::window()
-        .unwrap()
-        .document()
-        .unwrap()
-        .body()
-        .unwrap();
+    let body = body!();
 
     body.append_with_node_1(&element)?;
     element.click();
@@ -151,37 +163,10 @@ async fn process_images() -> JsResult {
     Ok(())
 }
 
-fn read_file(index: u32, file: web_sys::File) -> JsResult {
-    let reader = web_sys::FileReader::new()?;
-    reader.read_as_array_buffer(&file)?;
+async fn write_to_fs(path: &Path, reader: web_sys::FileReader) -> Result<(), Error> {
+    let photo_data = js_sys::Uint8Array::new(&reader.result()?).to_vec();
 
-    let r = reader.clone();
-    let closure = Closure::<dyn Fn(_) -> JsResult>::new(move |_: web_sys::Event| -> JsResult {
-        let photo_data = js_sys::Uint8Array::new(&r.result()?).to_vec();
-
-        // Create a Rust slice from the Uint8Array
-        let photo = ImageReader::new(std::io::Cursor::new(photo_data))
-            .with_guessed_format()
-            .map_err(|e| e.to_string())?
-            .decode()
-            .map_err(|e| e.to_string())?;
-
-        let photo = photo.resize(512, 512, FilterType::Nearest);
-        let mut jpg = vec![];
-        JpegEncoder::new(&mut jpg)
-            .encode_image(&photo)
-            .map_err(|e| e.to_string())?;
-
-        controller::update(Update::ExposureImage(index, BASE64_STANDARD.encode(jpg)))
-    });
-    reader.set_onloadend(Some(closure.as_ref().unchecked_ref()));
-    closure.forget();
-
-    let error_handler = Closure::<dyn Fn(_)>::new(move |_: web_sys::Event| {
-        log::error!("Failed to read file !");
-    });
-    reader.set_onerror(Some(error_handler.as_ref().unchecked_ref()));
-    error_handler.forget();
+    web_fs::write(path, &photo_data).await?;
 
     Ok(())
 }
@@ -194,46 +179,113 @@ fn extract_index_from_filename(filename: &str) -> Option<u32> {
         .map(|i| i % 100)
 }
 
-fn setup_editor_from_files(files: &[web_sys::FileSystemFileEntry]) -> JsResult {
+#[derive(Default, Debug, Serialize, Deserialize)]
+enum Orientation {
+    #[default]
+    Normal,
+    Rotated90,
+    Rotated180,
+    Rotated270,
+}
+
+#[derive(Default, Debug, Serialize, Deserialize)]
+struct FileMetadata {
+    name: String,
+    index: u32,
+    orientation: Orientation,
+    file_type: Option<String>,
+}
+
+fn setup_editor_from_files(files: &[web_sys::FileSystemFileEntry]) -> Result<(), Error> {
     fill_roll_fields(&RollData::default())?;
 
-    let mut index = HashMap::<u32, web_sys::FileSystemFileEntry>::new();
-    files
+    let metadata = files
         .into_iter()
-        .filter_map(|f: &web_sys::FileSystemFileEntry| {
-            extract_index_from_filename(&f.name()).map(|i| (i, f.to_owned()))
+        .map(|f: &web_sys::FileSystemFileEntry| FileMetadata {
+            name: f.name(),
+            index: extract_index_from_filename(&f.name()).unwrap_or(0),
+            orientation: Orientation::Normal,
+            file_type: Path::new(&f.name())
+                .extension()
+                .and_then(ImageFormat::from_extension)
+                .map(|fmt| fmt.to_mime_type().to_string()),
         })
-        .for_each(|(index_str, file)| {
-            index.insert(index_str, file);
-        });
+        .collect::<Vec<_>>();
 
-    set_handles(&index);
+    storage!().set_item("metadata", &serde_json::to_string(&metadata)?)?;
 
     let mut template = Data::default();
-    for (index, _) in index.iter() {
+    for index in 1..=files.len() as u32 {
         template
             .exposures
-            .insert(*index, ExposureSpecificData::default());
+            .insert(index, ExposureSpecificData::default());
+
+        create_row(index, false)?;
+
+        let image = el!("img");
+        image.set_id(&format!("exposure-{index}-preview"));
+        image.set_attribute("alt", &format!("E{}", index))?;
+
+        query_id!("preview").append_with_node_1(&image);
     }
 
-    storage!().set_item(
-        "data",
-        &serde_json::to_string(&template).map_err(|e| e.to_string())?,
-    )?;
+    storage!().set_item("data", &serde_json::to_string(&template)?)?;
 
-    for (index, entry) in index.into_iter() {
-        create_row(index, false)?;
-        let file_load =
-            Closure::<dyn Fn(_) -> JsResult>::new(move |f: web_sys::File| -> JsResult {
-                read_file(index, f)
+    wasm_bindgen_futures::spawn_local(async move {
+        web_fs::create_dir("originals")
+            .await
+            .map_err(|e| {
+                log::error!("Failed to create originals directory: {e}");
+            })
+            .ok();
+    });
+
+    for entry in files {
+        let name = entry.name();
+
+        // We need to get the web_sys::File from the FileSystemFileEntry, so a closure is used,
+        // then we create a FileReader to read the file, and add a callback to handle the file once
+        // it's loaded. Finally, the file is written to the filesystem, in an async block.
+        let file_load = Closure::once(move |file: web_sys::File| -> JsResult {
+            let reader = web_sys::FileReader::new()?;
+
+            let r = reader.clone();
+            let value = file.name();
+            let closure = Closure::once(move |_: web_sys::Event| {
+                let mut path = PathBuf::from("originals");
+                path.push(name);
+                let p = path.clone();
+
+                wasm_bindgen_futures::spawn_local(async move {
+                    write_to_fs(&p.as_path(), r)
+                        .await
+                        .inspect_err(|e| {
+                            log::error!("Failed to import file: {e}");
+                        })
+                        .ok();
+
+                    controller::update(Update::ExposureImage(
+                        extract_index_from_filename(&value).unwrap_or(0),
+                        path.as_os_str().to_string_lossy().to_string(),
+                    ));
+                });
             });
+            reader.set_onloadend(Some(closure.as_ref().unchecked_ref()));
+            closure.forget();
+
+            reader.read_as_array_buffer(&file)?;
+
+            Ok(())
+        });
 
         entry.file_with_callback(file_load.as_ref().unchecked_ref());
         file_load.forget();
     }
 
     query_id!("photoselect").class_list().add_1("hidden")?;
-    query_id!("editor").class_list().remove_1("hidden")
+    query_id!("editor").class_list().remove_1("hidden")?;
+
+    Ok(())
 }
 
 fn set_roll_handler(
@@ -351,7 +403,6 @@ fn setup_roll_fields() -> JsResult {
             let data: Data = serde_json::from_str(&storage!().get_item("data")?.ok_or("No data")?)
                 .map_err(|e| e.to_string())?;
 
-            //download_file("index.tse".into(), data.to_string())
             wasm_bindgen_futures::spawn_local(async move {
                 process_images().await;
             });
@@ -491,7 +542,9 @@ fn setup_drag_drop(photo_selector: &web_sys::HtmlInputElement) -> JsResult {
                 .map(|f| f.dyn_into::<web_sys::FileSystemFileEntry>())
                 .collect::<Result<Vec<_>, _>>()?;
 
-            setup_editor_from_files(&files)
+            setup_editor_from_files(&files)?;
+
+            Ok(())
         });
 
     photo_selector.add_event_listener_with_callback("change", closure.as_ref().unchecked_ref())?;
@@ -514,66 +567,6 @@ extern "C" {
     fn set_marker(x: f64, y: f64);
     fn prompt_coords(i: u32);
     fn encodeURIComponent(i: String) -> String;
-
-    fn get_raw_handles() -> js_sys::Map;
-    fn set_raw_handles(h: js_sys::Map);
-}
-
-fn set_handles(handles: &HashMap<u32, web_sys::FileSystemFileEntry>) {
-    let raw = js_sys::Map::new();
-    for (key, value) in handles {
-        raw.set(&serde_wasm_bindgen::to_value(&key).unwrap(), &value.into());
-    }
-
-    set_raw_handles(raw);
-}
-
-fn get_handles() -> HashMap<u32, web_sys::FileSystemFileEntry> {
-    let raw = get_raw_handles();
-
-    let mut handles = HashMap::new();
-    for vec in raw.entries() {
-        if let Ok(vec) = vec {
-            let vec: Vec<JsValue> = vec.unchecked_into::<js_sys::Array>().to_vec();
-            let key: u32 = vec
-                .get(0)
-                .and_then(|i| serde_wasm_bindgen::from_value(i.clone()).ok())
-                .unwrap();
-            let entry: web_sys::FileSystemFileEntry = vec
-                .get(1)
-                .map(|v| v.clone().unchecked_into::<web_sys::FileSystemFileEntry>())
-                .expect(&format!("Failed to convert {key} to FileSystemFileEntry"));
-            handles.insert(key, entry);
-        }
-    }
-
-    handles
-}
-
-fn download_file(filename: String, contents: String) -> JsResult {
-    let element = el!("a", web_sys::HtmlElement);
-    element.set_attribute(
-        "href",
-        &format!(
-            "data:text/plain;charset=utf-8,{}",
-            encodeURIComponent(contents)
-        ),
-    )?;
-    element.set_attribute("download", &filename)?;
-    element.style().set_property("display", "none")?;
-
-    let body = web_sys::window()
-        .ok_or("No window")?
-        .document()
-        .ok_or("no document on window")?
-        .body()
-        .ok_or("no body")?;
-
-    body.append_with_node_1(&element)?;
-    element.click();
-    body.remove_child(&element)?;
-
-    Ok(())
 }
 
 fn setup_editor_from_data(contents: &Data) -> JsResult {
@@ -587,9 +580,9 @@ fn setup_editor_from_data(contents: &Data) -> JsResult {
         create_row(*index, selection.contains(*index))?;
         controller::update(Update::Exposure(*index, data.clone()))?;
 
-        if let Err(e) = controller::update(Update::ExposureImageRestore(*index)) {
-            log::debug!("{e:?}");
-        }
+        //if let Err(e) = controller::update(Update::ExposureImageRestore(*index)) {
+        //    log::debug!("{e:?}");
+        //}
     }
 
     storage!().set_item(
@@ -615,5 +608,26 @@ pub fn setup() -> JsResult {
         }
     }
 
+    wasm_bindgen_futures::spawn_local(async move {
+        let mut fs_log = "fs:\n".to_owned();
+        print_dir_recursively("", 0, &mut fs_log).await;
+        log::info!("{}", fs_log);
+    });
+
     Ok(())
+}
+
+async fn print_dir_recursively<P: AsRef<std::path::Path>>(
+    path: P,
+    level: usize,
+    output: &mut impl std::fmt::Write,
+) {
+    let mut dir = web_fs::read_dir(path).await.unwrap();
+    while let Some(entry) = dir.next().await {
+        let entry = entry.unwrap();
+        writeln!(output, "{}{:?}", " ".repeat(level * 4), entry).unwrap();
+        if entry.file_type().await.unwrap().is_dir() {
+            Box::pin(print_dir_recursively(entry.path(), level + 1, output)).await;
+        }
+    }
 }

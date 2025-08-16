@@ -1,11 +1,13 @@
 use crate::{
     JsResult,
-    macros::{el, query_id, storage},
+    macros::{MacroError, el, query_id, storage},
     models::{Data, ExposureSpecificData, MAX_EXPOSURES, Selection},
 };
+use base64::prelude::*;
 use chrono::NaiveDateTime;
-use std::convert::TryInto;
-use wasm_bindgen::JsCast;
+use image::{ImageFormat, ImageReader, codecs::jpeg::JpegEncoder, imageops::FilterType};
+use std::{collections::HashMap, convert::TryInto, io::Cursor};
+use wasm_bindgen::{JsCast, JsValue};
 
 pub enum Update {
     ExposureImage(u32, String),
@@ -58,7 +60,7 @@ pub enum ExposureUpdate {
 }
 
 impl TryInto<ExposureUpdate> for UIExposureUpdate {
-    type Error = wasm_bindgen::prelude::JsValue;
+    type Error = JsValue;
 
     fn try_into(self) -> Result<ExposureUpdate, Self::Error> {
         Ok(match self {
@@ -150,7 +152,7 @@ fn exposure_update_field(index: u32, change: UIExposureUpdate) -> JsResult {
 
 macro_rules! image_cache {
     () => {
-        serde_json::from_str::<std::collections::HashMap<u32, String>>(
+        serde_json::from_str::<HashMap<u32, String>>(
             &storage!().get_item("image_cache")?.unwrap_or("{}".into()),
         )
         .map_err(|e| format!("{e}"))?
@@ -177,44 +179,62 @@ fn set_exposure_selection(index: u32, selected: bool) -> JsResult {
 }
 
 fn preview_exposure(index: u32) -> JsResult {
-    if web_sys::window()
-        .ok_or("No window")?
-        .document()
-        .ok_or("no document on window")?
-        .get_element_by_id(&format!("exposure-{index}-preview"))
-        .is_some()
-    {
-        return Ok(());
-    }
-
-    let image_cache = image_cache!();
-
-    let data = image_cache
-        .get(&index)
-        .ok_or(format!("No image cached for exposure {index}"))?;
-
-    let image = el!("img");
-    image.set_id(&format!("exposure-{index}-preview"));
-    image.set_attribute("alt", &format!("E{}", index))?;
-    image.set_attribute("src", &format!("data:image/{};base64, {}", "jpeg", data))?;
-
-    query_id!("preview").append_with_node_1(&image)
-}
-
-fn preview_exposure_cancel(index: u32) -> JsResult {
-    query_id!(&format!("exposure-{index}-preview")).remove();
+    query_id!(&format!("exposure-{index}-preview")).remove_attribute("hidden");
     Ok(())
 }
 
-fn exposure_update_image(index: u32, data: String) -> JsResult {
-    log::info!("Updating image for exposure {index}");
-    let mut image_cache = image_cache!();
+fn preview_exposure_cancel(index: u32) -> JsResult {
+    query_id!(&format!("exposure-{index}-preview")).set_attribute("hidden", "true");
+    Ok(())
+}
 
-    image_cache.insert(index, data);
-    storage!().set_item(
-        "image_cache",
-        &serde_json::to_string(&image_cache).map_err(|e| format!("{e}"))?,
-    )
+#[derive(Debug, thiserror::Error)]
+pub enum ControllerError {
+    #[error(transparent)]
+    Macro(#[from] MacroError),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error("JS error: {0}")]
+    Js(String),
+    #[error(transparent)]
+    Serde(#[from] serde_json::Error),
+    #[error(transparent)]
+    Image(#[from] image::ImageError),
+}
+
+impl From<JsValue> for ControllerError {
+    fn from(value: JsValue) -> Self {
+        ControllerError::Js(
+            value
+                .as_string()
+                .unwrap_or_else(|| "Unknown JS error".to_string()),
+        )
+    }
+}
+
+impl From<ControllerError> for JsValue {
+    fn from(value: ControllerError) -> Self {
+        JsValue::from_str(&value.to_string())
+    }
+}
+
+async fn exposure_update_image(index: u32, filename: String) -> Result<(), ControllerError> {
+    log::info!("Updating image for exposure {index} with file {filename}");
+    //let mut image_cache = image_cache!();
+
+    let photo = ImageReader::new(Cursor::new(web_fs::read(&filename).await?))
+        .with_guessed_format()?
+        .decode()?;
+
+    let mut thumbnail = vec![];
+    JpegEncoder::new(&mut thumbnail).encode_image(&photo.resize(512, 512, FilterType::Nearest))?;
+
+    let base64 = BASE64_STANDARD.encode(thumbnail);
+
+    query_id!(&format!("exposure-{index}-preview"))
+        .set_attribute("src", &format!("data:image/jpeg;base64, {base64}"));
+
+    Ok(())
 }
 
 fn exposure_restore_image(index: u32) -> JsResult {
@@ -225,7 +245,7 @@ fn exposure_restore_image(index: u32) -> JsResult {
         .ok_or(format!("No image cached for exposure {index}"))?;
 
     query_id!(&format!("exposure-{index}-preview"))
-        .set_attribute("src", &format!("data:image/{};base64, {}", "jpeg", data))
+        .set_attribute("src", &format!("data:image/jpeg;base64, {data}"))
 }
 
 fn roll_update(change: UIRollUpdate) -> JsResult {
@@ -357,7 +377,16 @@ pub fn update(event: Update) -> JsResult {
         Update::Roll(d) => roll_update(d),
         Update::Exposure(i, d) => exposure_update(i, d),
         Update::ExposureField(i, d) => exposure_update_field(i, d),
-        Update::ExposureImage(i, d) => exposure_update_image(i, d),
+        Update::ExposureImage(i, d) => {
+            wasm_bindgen_futures::spawn_local(async move {
+                exposure_update_image(i, d)
+                    .await
+                    .inspect_err(|e| log::error!("{e}"))
+                    .ok();
+            });
+
+            Ok(())
+        }
         Update::ExposureImageRestore(i) => exposure_restore_image(i),
         Update::SelectExposure(e, shift, ctrl) => toggle_selection(e, shift, ctrl),
         Update::SelectionClear | Update::SelectionAll | Update::SelectionInvert => {

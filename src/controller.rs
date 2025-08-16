@@ -1,11 +1,11 @@
 use crate::{
     JsResult,
+    macros::{el, query_id, storage},
     models::{Data, ExposureSpecificData, MAX_EXPOSURES, Selection},
-    update_exposure_ui,
 };
 use chrono::NaiveDateTime;
 use std::convert::TryInto;
-use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsCast;
 
 pub enum Update {
     ExposureImage(u32, String),
@@ -364,4 +364,18 @@ pub fn update(event: Update) -> JsResult {
             manage_selection(event)
         }
     }
+}
+
+fn update_exposure_ui(index: u32, data: &UIExposureUpdate) -> JsResult {
+    let (id, contents) = match data {
+        UIExposureUpdate::ShutterSpeed(value) => (&format!("exposure-input-sspeed-{index}"), value),
+        UIExposureUpdate::Aperture(value) => (&format!("exposure-input-aperture-{index}"), value),
+        UIExposureUpdate::Comment(value) => (&format!("exposure-input-comment-{index}"), value),
+        UIExposureUpdate::Date(value) => (&format!("exposure-input-date-{index}"), value),
+        UIExposureUpdate::Lens(value) => (&format!("exposure-input-lens-{index}"), value),
+        UIExposureUpdate::Gps(value) => (&format!("exposure-input-gps-{index}"), value),
+    };
+
+    query_id!(id, web_sys::HtmlInputElement).set_value(contents);
+    Ok(())
 }

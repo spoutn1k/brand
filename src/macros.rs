@@ -82,3 +82,11 @@ macro_rules! event_target {
         event_target!($event).dyn_into::<$type>()?
     };
 }
+
+pub(crate) use el;
+pub(crate) use event_target;
+pub(crate) use query_id;
+pub(crate) use query_selector;
+pub(crate) use roll_input;
+pub(crate) use roll_placeholder;
+pub(crate) use storage;

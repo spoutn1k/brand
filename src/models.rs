@@ -1,4 +1,5 @@
 use crate::controller::{ExposureUpdate, RollUpdate};
+use crate::gps::GpsRef;
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -8,6 +9,7 @@ use std::{
     mem,
     ops::Range,
 };
+use tiff::{encoder::TiffEncoder, tags::Tag};
 
 pub static MAX_EXPOSURES: u32 = 80;
 
@@ -66,6 +68,39 @@ pub struct ExposureSpecificData {
     #[serde_as(as = "Option<tse_date_format::Naive>")]
     pub date: Option<NaiveDateTime>,
     pub gps: Option<(f64, f64)>,
+}
+
+#[derive(Clone, Default, Debug)]
+pub struct ExposureData {
+    pub author: Option<String>,
+    pub make: Option<String>,
+    pub model: Option<String>,
+    pub sspeed: Option<String>,
+    pub aperture: Option<String>,
+    pub iso: Option<String>,
+    pub lens: Option<String>,
+    pub description: Option<String>,
+    pub comment: Option<String>,
+    pub date: Option<NaiveDateTime>,
+    pub gps: Option<(f64, f64)>,
+}
+
+impl ExposureData {
+    pub fn complete(self, other: &Self) -> Self {
+        ExposureData {
+            author: self.author.or(other.author.clone()),
+            make: self.make.or(other.make.clone()),
+            model: self.model.or(other.model.clone()),
+            sspeed: self.sspeed.or(other.sspeed.clone()),
+            aperture: self.aperture.or(other.aperture.clone()),
+            iso: self.iso.or(other.iso.clone()),
+            lens: self.lens.or(other.lens.clone()),
+            description: self.description.or(other.description.clone()),
+            comment: self.comment.or(other.comment.clone()),
+            date: self.date.or(other.date),
+            gps: self.gps.or(other.gps),
+        }
+    }
 }
 
 impl RollData {

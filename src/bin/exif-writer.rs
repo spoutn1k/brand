@@ -1,14 +1,13 @@
-use brand::image_management::{SupportedImage, format};
+use brand::{
+    image_management::{encode_jpeg_with_exif, encode_tiff_with_exif},
+    models::ExposureData,
+};
 use chrono::{DateTime, NaiveDateTime};
 use clap::Parser;
-use image::{ImageEncoder, ImageReader, codecs::jpeg::JpegEncoder};
+use image::ImageReader;
 use regex::Regex;
 use simple_logger::SimpleLogger;
-use std::{collections::HashMap, error::Error, fs::File, io, path::PathBuf};
-use tiff::{
-    encoder::{Compression, Predictor, Rational, TiffEncoder, colortype},
-    tags::Tag,
-};
+use std::{collections::HashMap, error::Error, fs::File, path::PathBuf};
 use winnow::{
     ModalResult, Parser as _,
     ascii::{alphanumeric1, float, tab},
@@ -31,231 +30,6 @@ struct Cli {
     #[arg(short, long)]
     #[clap(default_value = "false")]
     debug: bool,
-}
-
-#[derive(Clone, Default, Debug)]
-struct ExposureData {
-    author: Option<String>,
-    make: Option<String>,
-    model: Option<String>,
-    sspeed: Option<String>,
-    aperture: Option<String>,
-    iso: Option<String>,
-    lens: Option<String>,
-    description: Option<String>,
-    comment: Option<String>,
-    date: Option<NaiveDateTime>,
-    gps: Option<(f64, f64)>,
-}
-
-trait GpsRef {
-    fn format(&self) -> Vec<Rational>;
-}
-
-impl GpsRef for f64 {
-    /// Converts a GPS coordinate to the format expected by the EXIF standard
-    fn format(&self) -> Vec<Rational> {
-        let deg = Rational {
-            n: *self as u32,
-            d: 1,
-        };
-        let min = Rational {
-            n: (self.fract() * 60.0) as u32,
-            d: 1,
-        };
-
-        let sec_raw = (self * 60.0).fract() * 60.0;
-
-        let sec = match num_rational::Ratio::<u32>::approximate_float_unsigned(sec_raw) {
-            Some(sec) => Rational {
-                n: *sec.numer(),
-                d: *sec.denom(),
-            },
-            None => Rational {
-                n: sec_raw as u32,
-                d: 1,
-            },
-        };
-
-        vec![deg, min, sec]
-    }
-}
-
-/// Tag space of GPS ifds
-enum GpsTag {
-    //GPSVersionID,
-    GPSLatitudeRef,
-    GPSLatitude,
-    GPSLongitudeRef,
-    GPSLongitude,
-    //GPSAltitudeRef,
-    //GPSAltitude,
-    //GPSTimeStamp,
-    //GPSSatellites,
-    //GPSStatus,
-    //GPSMeasureMode,
-    //GPSDOP,
-    //GPSSpeedRef,
-    //GPSSpeed,
-    //GPSTrackRef,
-    //GPSTrack,
-    //GPSImgDirectionRef,
-    //GPSImgDirection,
-    //GPSMapDatum,
-    //GPSDestLatitudeRef,
-    //GPSDestLatitude,
-    //GPSDestLongitudeRef,
-    //GPSDestLongitude,
-    //GPSDestBearingRef,
-    //GPSDestBearing,
-    //GPSDestDistanceRef,
-    //GPSDestDistance,
-    //GPSProcessingMethod,
-    //GPSAreaInformation,
-    //GPSDateStamp,
-    //GPSDifferential,
-    //GPSHPositioningError,
-}
-
-impl From<GpsTag> for Tag {
-    fn from(tag: GpsTag) -> Self {
-        Tag::Unknown(u16::from(tag))
-    }
-}
-
-impl From<GpsTag> for u16 {
-    fn from(tag: GpsTag) -> Self {
-        match tag {
-            //GpsTag::GPSVersionID => 0x0000,
-            GpsTag::GPSLatitudeRef => 0x0001,
-            GpsTag::GPSLatitude => 0x0002,
-            GpsTag::GPSLongitudeRef => 0x0003,
-            GpsTag::GPSLongitude => 0x0004,
-            //GpsTag::GPSAltitudeRef => 0x0005,
-            //GpsTag::GPSAltitude => 0x0006,
-            //GpsTag::GPSTimeStamp => 0x0007,
-            //GpsTag::GPSSatellites => 0x0008,
-            //GpsTag::GPSStatus => 0x0009,
-            //GpsTag::GPSMeasureMode => 0x000a,
-            //GpsTag::GPSDOP => 0x000b,
-            //GpsTag::GPSSpeedRef => 0x000c,
-            //GpsTag::GPSSpeed => 0x000d,
-            //GpsTag::GPSTrackRef => 0x000e,
-            //GpsTag::GPSTrack => 0x000f,
-            //GpsTag::GPSImgDirectionRef => 0x0010,
-            //GpsTag::GPSImgDirection => 0x0011,
-            //GpsTag::GPSMapDatum => 0x0012,
-            //GpsTag::GPSDestLatitudeRef => 0x0013,
-            //GpsTag::GPSDestLatitude => 0x0014,
-            //GpsTag::GPSDestLongitudeRef => 0x0015,
-            //GpsTag::GPSDestLongitude => 0x0016,
-            //GpsTag::GPSDestBearingRef => 0x0017,
-            //GpsTag::GPSDestBearing => 0x0018,
-            //GpsTag::GPSDestDistanceRef => 0x0019,
-            //GpsTag::GPSDestDistance => 0x001a,
-            //GpsTag::GPSProcessingMethod => 0x001b,
-            //GpsTag::GPSAreaInformation => 0x001c,
-            //GpsTag::GPSDateStamp => 0x001d,
-            //GpsTag::GPSDifferential => 0x001e,
-            //GpsTag::GPSHPositioningError => 0x001f,
-        }
-    }
-}
-
-impl ExposureData {
-    fn complete(self, other: &Self) -> Self {
-        ExposureData {
-            author: self.author.or(other.author.clone()),
-            make: self.make.or(other.make.clone()),
-            model: self.model.or(other.model.clone()),
-            sspeed: self.sspeed.or(other.sspeed.clone()),
-            aperture: self.aperture.or(other.aperture.clone()),
-            iso: self.iso.or(other.iso.clone()),
-            lens: self.lens.or(other.lens.clone()),
-            description: self.description.or(other.description.clone()),
-            comment: self.comment.or(other.comment.clone()),
-            date: self.date.or(other.date),
-            gps: self.gps.or(other.gps),
-        }
-    }
-
-    fn encode_exif<W: std::io::Write + std::io::Seek>(
-        &self,
-        encoder: &mut TiffEncoder<W>,
-    ) -> Result<(), tiff::TiffError> {
-        let gps_off = &self
-            .gps
-            .map(|coords| {
-                let mut gps = encoder.extra_directory()?;
-
-                let (lat, lon): (f64, f64);
-                if coords.0 < 0.0 {
-                    gps.write_tag(GpsTag::GPSLatitudeRef.into(), "S")?;
-                    lat = -coords.0;
-                } else {
-                    gps.write_tag(GpsTag::GPSLatitudeRef.into(), "N")?;
-                    lat = coords.0;
-                }
-
-                if coords.1 < 0.0 {
-                    gps.write_tag(GpsTag::GPSLongitudeRef.into(), "W")?;
-                    lon = -coords.1;
-                } else {
-                    gps.write_tag(GpsTag::GPSLongitudeRef.into(), "E")?;
-                    lon = coords.1;
-                }
-
-                gps.write_tag(GpsTag::GPSLatitude.into(), lat.format().as_slice())?;
-                gps.write_tag(GpsTag::GPSLongitude.into(), lon.format().as_slice())?;
-
-                gps.finish_with_offsets()
-            })
-            .and_then(|r| r.ok());
-
-        let mut dir = encoder.image_directory()?;
-        if let Some(off) = gps_off {
-            dir.write_tag(Tag::GpsDirectory, off.offset)?;
-        }
-
-        if let Some(value) = &self.author {
-            dir.write_tag(Tag::Artist, value.as_str())?;
-        }
-
-        if let Some(make) = &self.make {
-            dir.write_tag(Tag::Make, make.as_str())?;
-        }
-
-        if let Some(model) = &self.model {
-            dir.write_tag(Tag::Model, model.as_str())?;
-        }
-
-        match (&self.description, &self.comment) {
-            (Some(description), Some(comment)) => {
-                dir.write_tag(
-                    Tag::ImageDescription,
-                    format!("{description} - {comment}").as_str(),
-                )?;
-            }
-            (Some(description), None) => {
-                dir.write_tag(Tag::ImageDescription, description.as_str())?;
-            }
-            (None, Some(comment)) => {
-                dir.write_tag(Tag::ImageDescription, comment.as_str())?;
-            }
-            _ => (),
-        }
-
-        if let Some(iso) = &self.iso {
-            let iso = iso.parse::<u16>().unwrap();
-            dir.write_tag(Tag::Unknown(0x8827), iso)?;
-        }
-
-        if let Some(shutter_speed) = &self.sspeed {
-            dir.write_tag(Tag::Unknown(0x9201), shutter_speed.parse::<u16>().unwrap())?;
-        }
-
-        dir.finish()
-    }
 }
 
 pub fn expected(reason: &'static str) -> StrContext {
@@ -312,31 +86,7 @@ fn encode_jpeg(image: &PathBuf, data: &ExposureData) -> Result<(), Box<dyn Error
     let buffer_name = image.with_extension("jpeg-exifed");
     let buffer = File::create(&buffer_name)?;
 
-    let mut f = io::Cursor::new(Vec::new());
-    let mut encoder = TiffEncoder::new(&mut f)?;
-
-    data.encode_exif(&mut encoder)?;
-
-    let jpg_encoder = JpegEncoder::new_with_quality(buffer, 90).with_exif_metadata(f.into_inner());
-
-    match format(photo) {
-        SupportedImage::RGB(photo) => {
-            jpg_encoder.write_image(
-                &photo,
-                photo.height(),
-                photo.width(),
-                image::ColorType::Rgb8.into(),
-            )?;
-        }
-        SupportedImage::Gray(photo) => {
-            jpg_encoder.write_image(
-                &photo,
-                photo.height(),
-                photo.width(),
-                image::ColorType::L8.into(),
-            )?;
-        }
-    }
+    encode_jpeg_with_exif(photo, buffer, data)?;
 
     std::fs::rename(&buffer_name, image.with_extension("jpg"))?;
     Ok(())
@@ -348,20 +98,7 @@ fn encode_tiff(image: &PathBuf, data: &ExposureData) -> Result<(), Box<dyn Error
     let buffer_name = image.with_extension("tiff-exifed");
     let buffer = File::create(&buffer_name)?;
 
-    let mut encoder = TiffEncoder::new(buffer)?
-        .with_compression(Compression::Lzw)
-        .with_predictor(Predictor::Horizontal);
-
-    data.encode_exif(&mut encoder)?;
-
-    match format(photo) {
-        SupportedImage::RGB(photo) => {
-            encoder.write_image::<colortype::RGB8>(photo.width(), photo.height(), &photo)?;
-        }
-        SupportedImage::Gray(photo) => {
-            encoder.write_image::<colortype::Gray8>(photo.width(), photo.height(), &photo)?;
-        }
-    }
+    encode_tiff_with_exif(photo, buffer, data)?;
 
     std::fs::rename(&buffer_name, image.with_extension("tiff"))?;
     Ok(())

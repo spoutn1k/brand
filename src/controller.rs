@@ -1,11 +1,11 @@
 use crate::{
-    JsResult,
-    macros::{MacroError, el, query_id, storage},
+    Aquiesce, Error, JsResult,
+    macros::{MacroError, query_id, storage},
     models::{Data, ExposureSpecificData, MAX_EXPOSURES, Selection},
 };
 use base64::prelude::*;
 use chrono::NaiveDateTime;
-use image::{ImageFormat, ImageReader, codecs::jpeg::JpegEncoder, imageops::FilterType};
+use image::{ImageReader, codecs::jpeg::JpegEncoder, imageops::FilterType};
 use std::{collections::HashMap, convert::TryInto, io::Cursor};
 use wasm_bindgen::{JsCast, JsValue};
 
@@ -168,57 +168,17 @@ fn set_exposure_selection(index: u32, selected: bool) -> JsResult {
 
     let classes = query_id!(&format!("exposure-{index}")).class_list();
     if selected {
-        preview_exposure(index)?;
+        query_id!(&format!("exposure-{index}-preview")).remove_attribute("hidden")?;
 
         classes.add_1("selected")
     } else {
-        preview_exposure_cancel(index)?;
+        query_id!(&format!("exposure-{index}-preview")).set_attribute("hidden", "true")?;
 
         classes.remove_1("selected")
     }
 }
 
-fn preview_exposure(index: u32) -> JsResult {
-    query_id!(&format!("exposure-{index}-preview")).remove_attribute("hidden");
-    Ok(())
-}
-
-fn preview_exposure_cancel(index: u32) -> JsResult {
-    query_id!(&format!("exposure-{index}-preview")).set_attribute("hidden", "true");
-    Ok(())
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum ControllerError {
-    #[error(transparent)]
-    Macro(#[from] MacroError),
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
-    #[error("JS error: {0}")]
-    Js(String),
-    #[error(transparent)]
-    Serde(#[from] serde_json::Error),
-    #[error(transparent)]
-    Image(#[from] image::ImageError),
-}
-
-impl From<JsValue> for ControllerError {
-    fn from(value: JsValue) -> Self {
-        ControllerError::Js(
-            value
-                .as_string()
-                .unwrap_or_else(|| "Unknown JS error".to_string()),
-        )
-    }
-}
-
-impl From<ControllerError> for JsValue {
-    fn from(value: ControllerError) -> Self {
-        JsValue::from_str(&value.to_string())
-    }
-}
-
-async fn exposure_update_image(index: u32, filename: String) -> Result<(), ControllerError> {
+async fn exposure_update_image(index: u32, filename: String) -> Result<(), Error> {
     log::info!("Updating image for exposure {index} with file {filename}");
     //let mut image_cache = image_cache!();
 
@@ -232,7 +192,7 @@ async fn exposure_update_image(index: u32, filename: String) -> Result<(), Contr
     let base64 = BASE64_STANDARD.encode(thumbnail);
 
     query_id!(&format!("exposure-{index}-preview"))
-        .set_attribute("src", &format!("data:image/jpeg;base64, {base64}"));
+        .set_attribute("src", &format!("data:image/jpeg;base64, {base64}"))?;
 
     Ok(())
 }
@@ -379,10 +339,7 @@ pub fn update(event: Update) -> JsResult {
         Update::ExposureField(i, d) => exposure_update_field(i, d),
         Update::ExposureImage(i, d) => {
             wasm_bindgen_futures::spawn_local(async move {
-                exposure_update_image(i, d)
-                    .await
-                    .inspect_err(|e| log::error!("{e}"))
-                    .ok();
+                exposure_update_image(i, d).await.aquiesce();
             });
 
             Ok(())

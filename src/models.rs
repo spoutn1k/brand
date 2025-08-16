@@ -1,5 +1,4 @@
 use crate::controller::{ExposureUpdate, RollUpdate};
-use crate::gps::GpsRef;
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -9,7 +8,6 @@ use std::{
     mem,
     ops::Range,
 };
-use tiff::{encoder::TiffEncoder, tags::Tag};
 
 pub static MAX_EXPOSURES: u32 = 80;
 

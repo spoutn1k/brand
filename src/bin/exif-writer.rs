@@ -78,7 +78,7 @@ fn exposure_tsv(input: &mut &str) -> ModalResult<ExposureData> {
 }
 
 fn encode_jpeg(image: &PathBuf, data: &ExposureData) -> Result<(), Box<dyn Error>> {
-    let photo = ImageReader::open(&image)?
+    let photo = ImageReader::open(image)?
         .with_guessed_format()?
         .decode()?
         .resize(2000, 2000, image::imageops::FilterType::Lanczos3);
@@ -93,7 +93,7 @@ fn encode_jpeg(image: &PathBuf, data: &ExposureData) -> Result<(), Box<dyn Error
 }
 
 fn encode_tiff(image: &PathBuf, data: &ExposureData) -> Result<(), Box<dyn Error>> {
-    let photo = ImageReader::open(&image)?.with_guessed_format()?.decode()?;
+    let photo = ImageReader::open(image)?.with_guessed_format()?.decode()?;
 
     let buffer_name = image.with_extension("tiff-exifed");
     let buffer = File::create(&buffer_name)?;

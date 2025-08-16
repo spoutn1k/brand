@@ -3,14 +3,14 @@ use crate::{
     models::ExposureData,
 };
 use image::{
-    DynamicImage, GrayImage, ImageEncoder, ImageReader, RgbImage, codecs::jpeg::JpegEncoder,
+    DynamicImage, GrayImage, ImageEncoder, RgbImage, codecs::jpeg::JpegEncoder,
 };
 use std::{
     error::Error,
     io::{Cursor, Seek, Write},
 };
 use tiff::{
-    encoder::{Compression, Predictor, Rational, TiffEncoder, colortype},
+    encoder::{Compression, Predictor, TiffEncoder, colortype},
     tags::Tag,
 };
 

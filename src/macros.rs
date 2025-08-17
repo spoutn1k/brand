@@ -42,8 +42,19 @@ macro_rules! storage {
     }};
 }
 
+pub trait SessionStorageExt {
+    fn get_existing(&self, key: &str) -> Result<String, crate::Error>;
+}
+
+impl SessionStorageExt for web_sys::Storage {
+    fn get_existing(&self, key: &str) -> Result<String, crate::Error> {
+        self.get_item(key)?
+            .ok_or_else(|| crate::Error::MissingKey(key.to_string()))
+    }
+}
+
 macro_rules! query_id {
-    ($id:expr, $type:ty) => {{ query_id!($id).dyn_into::<$type>()? }};
+    ($id:expr, $type:ty) => {{ query_id!($id).unchecked_into::<$type>() }};
 
     ($id:expr) => {{
         web_sys::window()
@@ -114,7 +125,7 @@ macro_rules! event_target {
     };
 
     ($event:expr, $type:ty) => {
-        event_target!($event).dyn_into::<$type>()?
+        event_target!($event).unchecked_into::<$type>()
     };
 }
 

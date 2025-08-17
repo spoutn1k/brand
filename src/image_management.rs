@@ -2,9 +2,7 @@ use crate::{
     gps::{GpsRef, GpsTag},
     models::ExposureData,
 };
-use image::{
-    DynamicImage, GrayImage, ImageEncoder, RgbImage, codecs::jpeg::JpegEncoder,
-};
+use image::{DynamicImage, GrayImage, ImageEncoder, RgbImage, codecs::jpeg::JpegEncoder};
 use std::{
     error::Error,
     io::{Cursor, Seek, Write},
@@ -47,27 +45,28 @@ pub fn encode_jpeg_with_exif<O: Write>(
     output: O,
     data: &ExposureData,
 ) -> Result<(), Box<dyn Error>> {
-    let mut f = Cursor::new(Vec::new());
-    let mut encoder = TiffEncoder::new(&mut f)?;
+    let mut f = Vec::new();
+    let mut encoder = TiffEncoder::new(Cursor::new(&mut f))?;
 
     encode_exif(data, &mut encoder)?;
 
-    let jpg_encoder = JpegEncoder::new_with_quality(output, 90).with_exif_metadata(f.into_inner());
+    let mut jpg_encoder = JpegEncoder::new_with_quality(output, 90);
+    jpg_encoder.set_exif_metadata(f)?;
 
     match format(input) {
         SupportedImage::RGB(photo) => {
             jpg_encoder.write_image(
                 &photo,
-                photo.height(),
                 photo.width(),
+                photo.height(),
                 image::ColorType::Rgb8.into(),
             )?;
         }
         SupportedImage::Gray(photo) => {
             jpg_encoder.write_image(
                 &photo,
-                photo.height(),
                 photo.width(),
+                photo.height(),
                 image::ColorType::L8.into(),
             )?;
         }

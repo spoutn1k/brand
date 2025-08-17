@@ -78,6 +78,8 @@ fn exposure_tsv(input: &mut &str) -> ModalResult<ExposureData> {
 }
 
 fn encode_jpeg(image: &PathBuf, data: &ExposureData) -> Result<(), Box<dyn Error>> {
+    log::debug!("Processing image to jpeg: {}", image.display());
+
     let photo = ImageReader::open(image)?
         .with_guessed_format()?
         .decode()?
@@ -93,6 +95,8 @@ fn encode_jpeg(image: &PathBuf, data: &ExposureData) -> Result<(), Box<dyn Error
 }
 
 fn encode_tiff(image: &PathBuf, data: &ExposureData) -> Result<(), Box<dyn Error>> {
+    log::debug!("Processing image to tiff: {}", image.display());
+
     let photo = ImageReader::open(image)?.with_guessed_format()?.decode()?;
 
     let buffer_name = image.with_extension("tiff-exifed");
@@ -213,6 +217,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         })
         .collect::<Result<Vec<_>, _>>()?;
 
+    log::debug!("Found {} exposures", exposures.len());
+    log::debug!("Found {} files", files.len());
+
     for exposure_index in files.keys() {
         if !exposures.contains_key(exposure_index) {
             log::error!("No exposure data found for exposure number {exposure_index}");
@@ -220,6 +227,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     for (index, data) in exposures {
+        log::debug!("Processing exposure {index} with data: {:?}", data);
+
         let targets = files.get(&index);
 
         if targets.is_none() {
@@ -231,7 +240,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             .unwrap()
             .iter()
             .flat_map(|file: &PathBuf| vec![encode_jpeg(file, &data), encode_tiff(file, &data)])
-            .filter(|r| r.is_err());
+            .filter(|r| r.is_err())
+            .collect::<Vec<_>>();
+
+        log::debug!("{_errs:?}");
     }
 
     Ok(())

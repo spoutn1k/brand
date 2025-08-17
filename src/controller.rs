@@ -1,17 +1,18 @@
 use crate::{
-    Aquiesce, Error, JsResult,
-    macros::{MacroError, query_id, storage},
-    models::{Data, ExposureSpecificData, MAX_EXPOSURES, Selection},
+    Aquiesce, Error, JsResult, Orientation,
+    macros::{MacroError, SessionStorageExt, query_id, storage},
+    models::{
+        Data, ExposureData, ExposureSpecificData, FileMetadata, MAX_EXPOSURES, Meta, Selection,
+    },
 };
 use base64::prelude::*;
 use chrono::NaiveDateTime;
 use image::{ImageReader, codecs::jpeg::JpegEncoder, imageops::FilterType};
-use std::{collections::HashMap, convert::TryInto, io::Cursor};
+use std::{convert::TryInto, io::Cursor, path::PathBuf};
 use wasm_bindgen::{JsCast, JsValue};
 
 pub enum Update {
-    ExposureImage(u32, String),
-    ExposureImageRestore(u32),
+    ExposureImage(u32),
     SelectExposure(u32, bool, bool),
     SelectionClear,
     SelectionAll,
@@ -19,6 +20,10 @@ pub enum Update {
     Exposure(u32, ExposureSpecificData),
     ExposureField(u32, UIExposureUpdate),
     Roll(UIRollUpdate),
+    FileMetadata(PathBuf, FileMetadata),
+    ExposureRotate(u32, Orientation),
+    RotateLeft,
+    //RotatedRight,
 }
 
 #[derive(Debug, Clone)]
@@ -120,21 +125,18 @@ impl TryInto<RollUpdate> for UIRollUpdate {
     }
 }
 
-fn exposure_update_field(index: u32, change: UIExposureUpdate) -> JsResult {
+fn exposure_update_field(index: u32, change: UIExposureUpdate) -> Result<(), Error> {
     let validated: ExposureUpdate = change.clone().try_into()?;
 
     let storage = storage!();
-
-    let mut data: Data =
-        serde_json::from_str(&storage.get_item("data")?.ok_or("No data in storage !")?)
-            .map_err(|e| format!("{e}"))?;
+    let mut data: Data = serde_json::from_str(&storage.get_existing("data")?)?;
 
     let selection: Selection = get_selection()?;
 
     for target in std::iter::once(index).chain(selection.items()) {
         data.exposures
             .get_mut(&target)
-            .ok_or("Failed to access exposure")?
+            .ok_or(Error::MissingKey(format!("exposure {target}")))?
             .update(validated.clone());
 
         if target != index {
@@ -144,22 +146,12 @@ fn exposure_update_field(index: u32, change: UIExposureUpdate) -> JsResult {
 
     update_exposure_ui(index, &change)?;
 
-    storage.set_item(
-        "data",
-        &serde_json::to_string(&data).map_err(|e| format!("{e}"))?,
-    )
+    storage.set_item("data", &serde_json::to_string(&data)?)?;
+
+    Ok(())
 }
 
-macro_rules! image_cache {
-    () => {
-        serde_json::from_str::<HashMap<u32, String>>(
-            &storage!().get_item("image_cache")?.unwrap_or("{}".into()),
-        )
-        .map_err(|e| format!("{e}"))?
-    };
-}
-
-fn set_exposure_selection(index: u32, selected: bool) -> JsResult {
+fn set_exposure_selection(index: u32, selected: bool) -> Result<(), Error> {
     query_id!(
         &format!("exposure-input-select-{index}"),
         web_sys::HtmlInputElement
@@ -170,24 +162,50 @@ fn set_exposure_selection(index: u32, selected: bool) -> JsResult {
     if selected {
         query_id!(&format!("exposure-{index}-preview")).remove_attribute("hidden")?;
 
-        classes.add_1("selected")
+        classes.add_1("selected")?;
     } else {
         query_id!(&format!("exposure-{index}-preview")).set_attribute("hidden", "true")?;
 
-        classes.remove_1("selected")
+        classes.remove_1("selected")?;
     }
+
+    Ok(())
 }
 
-async fn exposure_update_image(index: u32, filename: String) -> Result<(), Error> {
-    log::info!("Updating image for exposure {index} with file {filename}");
-    //let mut image_cache = image_cache!();
+async fn exposure_update_image(index: u32) -> Result<(), Error> {
+    let storage = storage!();
+    let data: Meta = serde_json::from_str(&storage.get_existing("metadata")?)?;
 
-    let photo = ImageReader::new(Cursor::new(web_fs::read(&filename).await?))
+    let (_, meta) = data
+        .into_iter()
+        .find(|(_, meta)| meta.index == index)
+        .ok_or(Error::MissingKey(format!(
+            "No image path for exposure {index}"
+        )))?;
+
+    let file = meta.local_fs_path.ok_or(Error::MissingKey(format!(
+        "Missing local file for exposure {index}"
+    )))?;
+
+    log::info!(
+        "Updating image for exposure {index} with file {}",
+        file.display()
+    );
+
+    let photo = ImageReader::new(Cursor::new(web_fs::read(file).await?))
         .with_guessed_format()?
-        .decode()?;
+        .decode()?
+        .resize(512, 512, FilterType::Nearest);
+
+    let photo = match meta.orientation {
+        Orientation::Normal => photo,
+        Orientation::Rotated90 => photo.rotate90(),
+        Orientation::Rotated180 => photo.rotate180(),
+        Orientation::Rotated270 => photo.rotate270(),
+    };
 
     let mut thumbnail = vec![];
-    JpegEncoder::new(&mut thumbnail).encode_image(&photo.resize(512, 512, FilterType::Nearest))?;
+    JpegEncoder::new(&mut thumbnail).encode_image(&photo)?;
 
     let base64 = BASE64_STANDARD.encode(thumbnail);
 
@@ -197,60 +215,22 @@ async fn exposure_update_image(index: u32, filename: String) -> Result<(), Error
     Ok(())
 }
 
-fn exposure_restore_image(index: u32) -> JsResult {
-    let image_cache = image_cache!();
-
-    let data = image_cache
-        .get(&index)
-        .ok_or(format!("No image cached for exposure {index}"))?;
-
-    query_id!(&format!("exposure-{index}-preview"))
-        .set_attribute("src", &format!("data:image/jpeg;base64, {data}"))
-}
-
-fn roll_update(change: UIRollUpdate) -> JsResult {
+fn roll_update(change: UIRollUpdate) -> Result<(), Error> {
     let validated: RollUpdate = change.try_into()?;
 
     let storage = storage!();
-    let mut data: Data =
-        serde_json::from_str(&storage.get_item("data")?.ok_or("No data in storage !")?)
-            .map_err(|e| format!("{e}"))?;
+    let mut data: Data = serde_json::from_str(&storage.get_existing("data")?)?;
 
     data.roll.update(validated);
 
-    storage.set_item(
-        "data",
-        &serde_json::to_string(&data).map_err(|e| format!("{e}"))?,
-    )
+    storage.set_item("data", &serde_json::to_string(&data)?)?;
+
+    Ok(())
 }
 
-/* Deprecated
-fn clone_row(index: u32) -> JsResult {
+fn exposure_update(index: u32, exp: ExposureSpecificData) -> Result<(), Error> {
     let storage = storage!();
-    let data: Data = serde_json::from_str(&storage.get_item("data")?.ok_or("No data")?)
-        .map_err(|e| e.to_string())?;
-
-    let mut exposures: Vec<(u32, ExposureSpecificData)> = data.exposures.into_iter().collect();
-    exposures.sort_by_key(|e| e.0);
-
-    let current = exposures.iter_mut().position(|k| k.0 == index);
-
-    let position = current.ok_or("No matching exposition")?;
-    if position + 1 >= exposures.len() {
-        Err("Cannot clone last row !")?
-    }
-
-    let (_, exp) = exposures[position].clone();
-    let (target, _) = exposures[position + 1].clone();
-    exposures[position + 1] = (target, exp.clone());
-    exposure_update(target, exp)
-}
-*/
-
-fn exposure_update(index: u32, exp: ExposureSpecificData) -> JsResult {
-    let storage = storage!();
-    let mut data: Data = serde_json::from_str(&storage.get_item("data")?.ok_or("No data")?)
-        .map_err(|e| e.to_string())?;
+    let mut data: Data = serde_json::from_str(&storage.get_existing("data")?)?;
 
     [
         UIExposureUpdate::ShutterSpeed(exp.sspeed.clone().unwrap_or_default()),
@@ -274,19 +254,24 @@ fn exposure_update(index: u32, exp: ExposureSpecificData) -> JsResult {
 
     data.exposures.insert(index, exp);
 
-    storage.set_item(
-        "data",
-        &serde_json::to_string(&data).map_err(|e| e.to_string())?,
-    )
+    storage.set_item("data", &serde_json::to_string(&data)?)?;
+
+    Ok(())
 }
 
-pub fn get_selection() -> JsResult<Selection> {
+pub fn get_selection() -> Result<Selection, Error> {
     serde_json::from_str(&storage!().get_item("selected")?.unwrap_or_default())
-        .map_err(|e| e.to_string())
         .or_else(|_| Ok(Selection::default()))
 }
 
-fn toggle_selection(index: u32, shift: bool, ctrl: bool) -> JsResult {
+pub fn get_exposure_data(index: u32) -> Result<ExposureData, Error> {
+    let storage = storage!();
+    let data: Data = serde_json::from_str(&storage.get_existing("data")?)?;
+
+    Ok(data.generate(index))
+}
+
+fn toggle_selection(index: u32, shift: bool, ctrl: bool) -> Result<(), Error> {
     let mut selection = get_selection()?;
 
     match (ctrl, shift) {
@@ -305,13 +290,12 @@ fn toggle_selection(index: u32, shift: bool, ctrl: bool) -> JsResult {
         set_exposure_selection(exposure, choices.contains(&exposure)).ok();
     }
 
-    storage!().set_item(
-        "selected",
-        &serde_json::to_string(&selection).map_err(|e| e.to_string())?,
-    )
+    storage!().set_item("selected", &serde_json::to_string(&selection)?)?;
+
+    Ok(())
 }
 
-fn manage_selection(operation: Update) -> JsResult {
+fn manage_selection(operation: Update) -> Result<(), Error> {
     let mut selection = get_selection()?;
 
     match operation {
@@ -326,29 +310,71 @@ fn manage_selection(operation: Update) -> JsResult {
         set_exposure_selection(exposure, choices.contains(&exposure)).ok();
     }
 
-    storage!().set_item(
-        "selected",
-        &serde_json::to_string(&selection).map_err(|e| e.to_string())?,
-    )
+    storage!().set_item("selected", &serde_json::to_string(&selection)?)?;
+
+    Ok(())
 }
 
-pub fn update(event: Update) -> JsResult {
+fn rotate_left_selection() -> Result<(), Error> {
+    let selection = get_selection()?;
+
+    for index in selection.items() {
+        rotate_id(index, Orientation::Rotated270)?;
+    }
+
+    Ok(())
+}
+
+fn rotate_id(index: u32, orientation: Orientation) -> Result<(), Error> {
+    let storage = storage!();
+    let mut data: Meta = serde_json::from_str(&storage.get_existing("metadata")?)?;
+
+    let (p, m) = data
+        .iter()
+        .find(|(_, m)| m.index == index)
+        .ok_or(Error::MissingKey(format!("exposure {index}")))?;
+
+    let mut meta = m.clone();
+    meta.orientation = meta.orientation.rotate(orientation);
+    data.insert(p.clone(), meta);
+
+    storage.set_item("metadata", &serde_json::to_string(&data)?)?;
+
+    wasm_bindgen_futures::spawn_local(async move {
+        exposure_update_image(index).await.aquiesce();
+    });
+
+    Ok(())
+}
+
+pub fn update(event: Update) -> Result<(), Error> {
     match event {
         Update::Roll(d) => roll_update(d),
         Update::Exposure(i, d) => exposure_update(i, d),
         Update::ExposureField(i, d) => exposure_update_field(i, d),
-        Update::ExposureImage(i, d) => {
+        Update::ExposureImage(i) => {
             wasm_bindgen_futures::spawn_local(async move {
-                exposure_update_image(i, d).await.aquiesce();
+                exposure_update_image(i).await.aquiesce();
             });
 
             Ok(())
         }
-        Update::ExposureImageRestore(i) => exposure_restore_image(i),
         Update::SelectExposure(e, shift, ctrl) => toggle_selection(e, shift, ctrl),
         Update::SelectionClear | Update::SelectionAll | Update::SelectionInvert => {
             manage_selection(event)
         }
+        Update::FileMetadata(path, metadata) => {
+            let storage = storage!();
+            let mut data: Meta = serde_json::from_str(&storage.get_existing("metadata")?)?;
+
+            data.insert(path, metadata);
+
+            storage.set_item("metadata", &serde_json::to_string(&data)?)?;
+
+            Ok(())
+        }
+        Update::ExposureRotate(index, orientation) => rotate_id(index, orientation),
+        Update::RotateLeft => rotate_left_selection(),
     }
 }
 

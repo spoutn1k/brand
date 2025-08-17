@@ -7,6 +7,7 @@ use std::{
     fmt::{self, Display, Formatter},
     mem,
     ops::Range,
+    path::PathBuf,
 };
 
 pub static MAX_EXPOSURES: u32 = 80;
@@ -45,6 +46,40 @@ mod tse_date_format {
 pub struct Data {
     pub roll: RollData,
     pub exposures: HashMap<u32, ExposureSpecificData>,
+}
+
+impl Data {
+    pub fn generate(&self, index: u32) -> ExposureData {
+        let RollData {
+            author,
+            make,
+            model,
+            iso,
+            description,
+        } = self.roll.clone();
+        let ExposureSpecificData {
+            sspeed,
+            aperture,
+            lens,
+            comment,
+            date,
+            gps,
+        } = self.exposures.get(&index).cloned().unwrap_or_default();
+
+        ExposureData {
+            author,
+            make,
+            model,
+            iso,
+            description,
+            sspeed,
+            aperture,
+            lens,
+            comment,
+            date,
+            gps,
+        }
+    }
 }
 
 #[derive(Clone, Default, Debug, Deserialize, Serialize)]
@@ -301,6 +336,46 @@ impl Selection {
             .fin();
     }
 }
+
+#[derive(Default, Debug, Serialize, Deserialize, Clone)]
+pub enum Orientation {
+    #[default]
+    Normal,
+    Rotated90,
+    Rotated180,
+    Rotated270,
+}
+
+impl Orientation {
+    pub fn rotate(&self, angle: Orientation) -> Self {
+        match (self, angle) {
+            (Orientation::Normal, Orientation::Rotated90) => Orientation::Rotated90,
+            (Orientation::Normal, Orientation::Rotated180) => Orientation::Rotated180,
+            (Orientation::Normal, Orientation::Rotated270) => Orientation::Rotated270,
+            (Orientation::Rotated90, Orientation::Rotated90) => Orientation::Rotated180,
+            (Orientation::Rotated90, Orientation::Rotated180) => Orientation::Rotated270,
+            (Orientation::Rotated90, Orientation::Rotated270) => Orientation::Normal,
+            (Orientation::Rotated180, Orientation::Rotated90) => Orientation::Rotated270,
+            (Orientation::Rotated180, Orientation::Rotated180) => Orientation::Normal,
+            (Orientation::Rotated180, Orientation::Rotated270) => Orientation::Rotated90,
+            (Orientation::Rotated270, Orientation::Rotated90) => Orientation::Normal,
+            (Orientation::Rotated270, Orientation::Rotated180) => Orientation::Rotated90,
+            (Orientation::Rotated270, Orientation::Rotated270) => Orientation::Rotated180,
+            (o, Orientation::Normal) => o.clone(),
+        }
+    }
+}
+
+#[derive(Default, Debug, Serialize, Deserialize, Clone)]
+pub struct FileMetadata {
+    pub name: String,
+    pub local_fs_path: Option<PathBuf>,
+    pub index: u32,
+    pub orientation: Orientation,
+    pub file_type: Option<String>,
+}
+
+pub type Meta = HashMap<PathBuf, FileMetadata>;
 
 #[test]
 fn test_selection_contains() {

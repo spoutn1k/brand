@@ -1,11 +1,8 @@
 var map;
 var marker;
 
-var filehandles = new Map();
-
 document.addEventListener('DOMContentLoaded', (event) => {
     document.getElementById('photoselect').value = ""
-
 });
 
 document.addEventListener('DOMContentLoaded', (event) => {
@@ -48,4 +45,16 @@ function set_marker(lat, lng) {
     }
 
     marker = L.marker([lat, lng]).addTo(map);
+}
+
+function test() {
+    return window.wasmBindings.shared_memory();
+}
+
+function clear_storage() {
+    return window.wasmBindings.clear();
+}
+
+function fill() {
+    return window.wasmBindings.fill_memory();
 }

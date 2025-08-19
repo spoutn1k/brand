@@ -8,7 +8,11 @@ use std::{
     io::{Cursor, Seek, Write},
 };
 use tiff::{
-    encoder::{Compression, Predictor, TiffEncoder, colortype},
+    TiffError,
+    encoder::{
+        Compression, DirectoryEncoder, DirectoryOffset, Predictor, TiffEncoder, TiffKindStandard,
+        colortype,
+    },
     tags::Tag,
 };
 
@@ -48,7 +52,16 @@ pub fn encode_jpeg_with_exif<O: Write>(
     let mut f = Vec::new();
     let mut encoder = TiffEncoder::new(Cursor::new(&mut f))?;
 
-    encode_exif(data, &mut encoder)?;
+    let exif_data = encode_exif_ifd(data, &mut encoder)?;
+    let gps_data = encode_gps_ifd(data, &mut encoder)?;
+    let mut main = encoder.image_directory()?;
+
+    encode_exif(data, &mut main)?;
+    main.write_tag(Tag::ExifDirectory, exif_data.offset)?;
+    if let Some(gps_offset) = gps_data {
+        main.write_tag(Tag::GpsDirectory, gps_offset.offset)?;
+    }
+    main.finish()?;
 
     let mut jpg_encoder = JpegEncoder::new_with_quality(output, 90);
     jpg_encoder.set_exif_metadata(f)?;
@@ -84,26 +97,99 @@ pub fn encode_tiff_with_exif<O: Write + Seek>(
         .with_compression(Compression::Lzw)
         .with_predictor(Predictor::Horizontal);
 
-    encode_exif(data, &mut encoder)?;
+    let exif_data = encode_exif_ifd(data, &mut encoder)?;
+    let gps_data = encode_gps_ifd(data, &mut encoder)?;
 
     match format(input) {
         SupportedImage::RGB(photo) => {
-            encoder.write_image::<colortype::RGB8>(photo.width(), photo.height(), &photo)?;
+            let mut image = encoder.new_image::<colortype::RGB8>(photo.width(), photo.height())?;
+            encode_exif(data, image.encoder())?;
+            image
+                .encoder()
+                .write_tag(Tag::ExifDirectory, exif_data.offset)?;
+            if let Some(gps_offset) = gps_data {
+                image
+                    .encoder()
+                    .write_tag(Tag::GpsDirectory, gps_offset.offset)?;
+            }
+            image.write_data(&photo)?;
         }
         SupportedImage::Gray(photo) => {
-            encoder.write_image::<colortype::Gray8>(photo.width(), photo.height(), &photo)?;
+            let mut image = encoder.new_image::<colortype::Gray8>(photo.width(), photo.height())?;
+            encode_exif(data, image.encoder())?;
+            image
+                .encoder()
+                .write_tag(Tag::ExifDirectory, exif_data.offset)?;
+            if let Some(gps_offset) = gps_data {
+                image
+                    .encoder()
+                    .write_tag(Tag::GpsDirectory, gps_offset.offset)?;
+            }
+            image.write_data(&photo)?;
         }
     }
 
     Ok(())
 }
 
-pub fn encode_exif<W: Write + Seek>(
+pub fn encode_exif<'a, W: Write + Seek>(
+    data: &'a ExposureData,
+    encoder: &mut DirectoryEncoder<'a, W, TiffKindStandard>,
+) -> Result<(), TiffError> {
+    if let Some(value) = &data.author {
+        encoder.write_tag(Tag::Artist, value.as_str())?;
+    }
+
+    if let Some(make) = &data.make {
+        encoder.write_tag(Tag::Make, make.as_str())?;
+    }
+
+    if let Some(model) = &data.model {
+        encoder.write_tag(Tag::Model, model.as_str())?;
+    }
+
+    match (&data.description, &data.comment) {
+        (Some(description), Some(comment)) => {
+            encoder.write_tag(
+                Tag::ImageDescription,
+                format!("{description} - {comment}").as_str(),
+            )?;
+        }
+        (Some(description), None) => {
+            encoder.write_tag(Tag::ImageDescription, description.as_str())?;
+        }
+        (None, Some(comment)) => {
+            encoder.write_tag(Tag::ImageDescription, comment.as_str())?;
+        }
+        _ => (),
+    }
+
+    Ok(())
+}
+
+pub fn encode_exif_ifd<W: Write + Seek>(
     data: &ExposureData,
     encoder: &mut TiffEncoder<W>,
-) -> Result<(), tiff::TiffError> {
-    let gps_off = &data
-        .gps
+) -> Result<DirectoryOffset<TiffKindStandard>, TiffError> {
+    let mut dir = encoder.extra_directory()?;
+
+    if let Some(iso) = &data.iso {
+        let iso = iso.parse::<u16>().unwrap();
+        dir.write_tag(Tag::Unknown(0x8827), iso)?;
+    }
+
+    if let Some(shutter_speed) = &data.sspeed {
+        dir.write_tag(Tag::Unknown(0x9201), shutter_speed.parse::<u16>().unwrap())?;
+    }
+
+    dir.finish_with_offsets()
+}
+
+pub fn encode_gps_ifd<W: Write + Seek>(
+    data: &ExposureData,
+    encoder: &mut TiffEncoder<W>,
+) -> Result<Option<DirectoryOffset<TiffKindStandard>>, TiffError> {
+    data.gps
         .map(|coords| {
             let mut gps = encoder.extra_directory()?;
 
@@ -129,49 +215,5 @@ pub fn encode_exif<W: Write + Seek>(
 
             gps.finish_with_offsets()
         })
-        .and_then(|r| r.ok());
-
-    let mut dir = encoder.image_directory()?;
-    if let Some(off) = gps_off {
-        dir.write_tag(Tag::GpsDirectory, off.offset)?;
-    }
-
-    if let Some(value) = &data.author {
-        dir.write_tag(Tag::Artist, value.as_str())?;
-    }
-
-    if let Some(make) = &data.make {
-        dir.write_tag(Tag::Make, make.as_str())?;
-    }
-
-    if let Some(model) = &data.model {
-        dir.write_tag(Tag::Model, model.as_str())?;
-    }
-
-    match (&data.description, &data.comment) {
-        (Some(description), Some(comment)) => {
-            dir.write_tag(
-                Tag::ImageDescription,
-                format!("{description} - {comment}").as_str(),
-            )?;
-        }
-        (Some(description), None) => {
-            dir.write_tag(Tag::ImageDescription, description.as_str())?;
-        }
-        (None, Some(comment)) => {
-            dir.write_tag(Tag::ImageDescription, comment.as_str())?;
-        }
-        _ => (),
-    }
-
-    if let Some(iso) = &data.iso {
-        let iso = iso.parse::<u16>().unwrap();
-        dir.write_tag(Tag::Unknown(0x8827), iso)?;
-    }
-
-    if let Some(shutter_speed) = &data.sspeed {
-        dir.write_tag(Tag::Unknown(0x9201), shutter_speed.parse::<u16>().unwrap())?;
-    }
-
-    dir.finish()
+        .transpose()
 }

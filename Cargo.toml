@@ -25,7 +25,7 @@ sha2 = "0.10.8"
 simple_logger = { version = "5.0.0", features = ["stderr"] }
 tar = "0.4.44"
 thiserror = "2.0.14"
-tiff = { git = "https://github.com/image-rs/image-tiff", version = "0.10.0" }
+tiff = { version = "0.10.0", git = "https://github.com/image-rs/image-tiff/", branch = "main" }
 wasm-bindgen = { version = "0.2.92", features = ["serde_json"] }
 wasm-bindgen-futures = "0.4.50"
 wasm-logger = "0.2.0"
@@ -35,6 +35,10 @@ winnow = "0.6.13"
 [dependencies.web-sys]
 version = "0.3.69"
 features = ["CssStyleDeclaration", "Document", "DomRect", "DomTokenList", "Element", "FileSystemDirectoryEntry", "FileSystemFileEntry", "History", "HtmlCollection", "HtmlElement", "HtmlInputElement", "IntersectionObserver", "IntersectionObserverEntry", "IntersectionObserverInit", "KeyEvent", "KeyboardEvent", "Location", "MouseEvent", "Node", "NodeList", "ScrollBehavior", "ScrollToOptions", "Storage", "UrlSearchParams", "Window", "FileSystemDirectoryReader", "FileSystem", "InputEvent", "FileList", "File", "FileCallback", "FileReader", "Blob", "Url", "BlobPropertyBag"]
+
+#[lib]
+#name = "brand"
+#crate-type = ["cdylib", "rlib"]
 
 [[bin]]
 name = "exif-writer"

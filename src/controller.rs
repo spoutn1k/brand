@@ -347,15 +347,13 @@ fn rotate_id(index: u32, orientation: Orientation) -> Result<(), Error> {
     Ok(())
 }
 
-pub fn update(event: Update) -> Result<(), Error> {
+pub async fn update(event: Update) -> Result<(), Error> {
     match event {
         Update::Roll(d) => roll_update(d),
         Update::Exposure(i, d) => exposure_update(i, d),
         Update::ExposureField(i, d) => exposure_update_field(i, d),
         Update::ExposureImage(i) => {
-            wasm_bindgen_futures::spawn_local(async move {
-                exposure_update_image(i).await.aquiesce();
-            });
+            exposure_update_image(i).await.aquiesce();
 
             Ok(())
         }

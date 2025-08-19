@@ -225,7 +225,7 @@ dependencies = [
  "simple_logger",
  "tar",
  "thiserror 2.0.15",
- "tiff 0.10.0 (git+https://github.com/image-rs/image-tiff)",
+ "tiff 0.10.0 (git+https://github.com/image-rs/image-tiff/?branch=main)",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-logger",
@@ -1640,7 +1640,7 @@ dependencies = [
 [[package]]
 name = "tiff"
 version = "0.10.0"
-source = "git+https://github.com/image-rs/image-tiff#50be15e3565aeb740f3365a4f7e95a46cedee0d0"
+source = "git+https://github.com/image-rs/image-tiff/?branch=main#50be15e3565aeb740f3365a4f7e95a46cedee0d0"
 dependencies = [
  "flate2",
  "half",

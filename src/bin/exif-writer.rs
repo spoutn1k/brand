@@ -1,5 +1,7 @@
 use brand::{
-    image_management::{encode_jpeg_with_exif, encode_tiff_with_exif},
+    image_management::{
+        SupportedImage, encode_exif, encode_jpeg_with_exif, encode_tiff_with_exif, format,
+    },
     models::ExposureData,
 };
 use chrono::{DateTime, NaiveDateTime};
@@ -8,6 +10,7 @@ use image::ImageReader;
 use regex::Regex;
 use simple_logger::SimpleLogger;
 use std::{collections::HashMap, error::Error, fs::File, path::PathBuf};
+use tiff::encoder::colortype;
 use winnow::{
     ModalResult, Parser as _,
     ascii::{alphanumeric1, float, tab},
@@ -97,7 +100,10 @@ fn encode_jpeg(image: &PathBuf, data: &ExposureData) -> Result<(), Box<dyn Error
 fn encode_tiff(image: &PathBuf, data: &ExposureData) -> Result<(), Box<dyn Error>> {
     log::debug!("Processing image to tiff: {}", image.display());
 
-    let photo = ImageReader::open(image)?.with_guessed_format()?.decode()?;
+    let photo = ImageReader::open(image)?
+        .with_guessed_format()?
+        .decode()?
+        .resize(1, 1, image::imageops::FilterType::Lanczos3);
 
     let buffer_name = image.with_extension("tiff-exifed");
     let buffer = File::create(&buffer_name)?;

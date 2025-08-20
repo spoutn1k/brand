@@ -1,5 +1,8 @@
-use crate::controller::{ExposureUpdate, RollUpdate};
-use chrono::NaiveDateTime;
+use crate::{
+    Error,
+    controller::{ExposureUpdate, RollUpdate},
+};
+use chrono::{DateTime, NaiveDateTime};
 use serde::{Deserialize, Serialize};
 use std::{
     cmp,
@@ -9,8 +12,27 @@ use std::{
     ops::Range,
     path::PathBuf,
 };
+use winnow::{
+    ModalResult, Parser as _,
+    ascii::{alphanumeric1, float, tab},
+    combinator::{opt, preceded, separated_pair, seq},
+    error::{StrContext, StrContextValue},
+    token::take_till,
+};
 
 pub static MAX_EXPOSURES: u32 = 80;
+static TIMESTAMP_FORMAT: &str = "%Y %m %d %H %M %S";
+
+#[derive(Debug, Default)]
+pub struct TseParseError;
+
+impl std::fmt::Display for TseParseError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "Failed to parse TSE file")
+    }
+}
+
+impl std::error::Error for TseParseError {}
 
 mod tse_date_format {
     use chrono::NaiveDateTime;
@@ -26,7 +48,7 @@ mod tse_date_format {
         where
             S: Serializer,
         {
-            let s = format!("{}", value.format(FORMAT));
+            let s = value.format(FORMAT).to_string();
             serializer.serialize_str(&s)
         }
     }
@@ -42,6 +64,73 @@ mod tse_date_format {
     }
 }
 
+pub fn expected(reason: &'static str) -> StrContext {
+    StrContext::Expected(StrContextValue::Description(reason))
+}
+
+fn exposure_tsv(input: &mut &str) -> ModalResult<ExposureSpecificData> {
+    seq! {ExposureSpecificData {
+        sspeed: opt(alphanumeric1.map(String::from)).context(expected("Shutter speed")),
+        _: tab,
+        aperture: opt(preceded(opt("f"), float) .map(|m: f32| m.to_string()))
+            .context(expected("Aperture")),
+        _: tab,
+        lens: opt(alphanumeric1.map(String::from)).context(expected("Lens")),
+        _: tab,
+        comment: take_till(0.., |c| c == '\t')
+            .map(|m| Some(String::from(m)))
+            .context(expected("Comment")),
+        _: tab,
+        date: take_till(0.., |c| c == '\t')
+            .map(|s: &str| {
+                NaiveDateTime::parse_from_str(s, TIMESTAMP_FORMAT).ok()
+            })
+            .context(expected("Date")),
+        _: tab,
+        gps: opt(separated_pair(float, ", ", float)),
+        ..Default::default()
+    }}
+    .parse_next(input)
+}
+
+pub fn read_tse<R: std::io::BufRead>(buffer: R) -> Result<Data, Error> {
+    let Data {
+        mut roll,
+        mut exposures,
+    } = Data::default();
+
+    let mut reader = buffer.lines();
+
+    let mut index = 1;
+    while let Some(line) = reader.next().transpose()? {
+        if line.starts_with('#') {
+            let space = line.find(' ').unwrap();
+            let (marker, value) = line[1..].split_at(space - 1);
+
+            match marker {
+                "Make" => roll.make = Some(value.trim().into()),
+                "Model" => roll.model = Some(value.trim().into()),
+                "Description" => roll.description = Some(value.trim().into()),
+                "Author" => roll.author = Some(value.trim().into()),
+                "ISO" => roll.iso = Some(value.trim().into()),
+                &_ => (),
+            }
+
+            continue;
+        }
+
+        if line.is_empty() || line.starts_with(';') {
+            continue;
+        }
+
+        let exposure = exposure_tsv(&mut line.as_str()).map_err(|_| TseParseError::default())?;
+        exposures.insert(index, exposure);
+        index += 1;
+    }
+
+    Ok(Data { roll, exposures })
+}
+
 #[derive(Clone, Default, Debug, Deserialize, Serialize)]
 pub struct Data {
     pub roll: RollData,
@@ -50,35 +139,48 @@ pub struct Data {
 
 impl Data {
     pub fn generate(&self, index: u32) -> ExposureData {
-        let RollData {
-            author,
-            make,
-            model,
-            iso,
-            description,
-        } = self.roll.clone();
-        let ExposureSpecificData {
-            sspeed,
-            aperture,
-            lens,
-            comment,
-            date,
-            gps,
-        } = self.exposures.get(&index).cloned().unwrap_or_default();
+        let exposure = self.exposures.get(&index).cloned().unwrap_or_default();
 
         ExposureData {
-            author,
-            make,
-            model,
-            iso,
-            description,
-            sspeed,
-            aperture,
-            lens,
-            comment,
-            date,
-            gps,
+            author: self.roll.author.clone(),
+            make: self.roll.make.clone(),
+            model: self.roll.model.clone(),
+            iso: self.roll.iso.clone(),
+            description: self.roll.description.clone(),
+            sspeed: exposure.sspeed,
+            aperture: exposure.aperture,
+            lens: exposure.lens,
+            comment: exposure.comment,
+            date: exposure.date,
+            gps: exposure.gps,
         }
+    }
+
+    pub fn spread_shots(Data { roll, exposures }: Self) -> Self {
+        let mut exposures: Vec<_> = exposures.into_iter().collect();
+        exposures.sort_by(|lhs, rhs| lhs.0.cmp(&rhs.0));
+        let mut last = None;
+
+        let exposures = exposures
+            .into_iter()
+            .map(|(i, mut data)| {
+                match (data.date, last) {
+                    (Some(timestamp), None) => last = Some((timestamp, 1)),
+                    (Some(timestamp), Some((date, offset))) if timestamp == date => {
+                        let step = DateTime::from_timestamp(date.and_utc().timestamp() + offset, 0)
+                            .map(|d| d.naive_local())
+                            .expect("Bad date generated");
+                        last = Some((date, offset + 1));
+                        data.date = Some(step);
+                    }
+                    (Some(timestamp), Some(_)) => last = Some((timestamp, 1)),
+                    _ => (),
+                };
+                (i, data)
+            })
+            .collect();
+
+        Data { roll, exposures }
     }
 }
 
@@ -376,6 +478,60 @@ pub struct FileMetadata {
 }
 
 pub type Meta = HashMap<PathBuf, FileMetadata>;
+
+#[test]
+fn test_read_tse() {
+    let tse = r#"
+	2.8	50mm	Balade dans Paris	2025 04 10 14 00 00	48.86467241, 2.32135534
+	f1.8	50mm	Balade dans Paris	2025 04 10 14 00 00	48.86467241, 2.32135534
+		50mm	Balade dans Paris	2025 04 10 14 00 00	48.86351491, 2.31966019
+		50mm	Balade dans Paris	2025 04 10 14 00 00	48.84697524, 2.33650446
+		85mm	Balade dans Paris	2025 04 10 14 00 00	48.84697524, 2.33650446
+		85mm	Balade dans Paris	2025 04 10 14 00 00	48.84697524, 2.33650446
+		85mm	Balade dans Paris	2025 04 10 14 00 00	48.84697524, 2.33650446
+		85mm	Balade dans Paris	2025 04 10 14 00 00	48.8472506, 2.34434724
+		50mm	Balade dans Paris	2025 04 10 14 00 00	48.8472506, 2.34434724
+		85mm	Balade dans Paris	2025 04 10 14 00 00	48.85359036, 2.34680414
+		50mm	Tourisme	2025 04 15 16 00 00	48.86167979, 2.29603529
+		50mm	Tourisme	2025 04 15 16 00 00	48.86167979, 2.29603529
+		50mm	Tourisme	2025 04 15 16 00 00	48.86167979, 2.29603529
+		50mm	Tourisme	2025 04 15 16 00 00	48.86167979, 2.29603529
+		20mm	Ile de la cité	2025 04 17 18 00 00	48.85519988, 2.34651446
+		20mm	Ile de la cité	2025 04 17 18 00 00	48.85519988, 2.34651446
+		85mm	Balade	2025 04 18 17 00 00	48.87177211, 2.36459255
+		85mm	Balade	2025 04 18 17 00 00	48.87177211, 2.36459255
+		85mm	Balade	2025 04 18 17 00 00	48.87177211, 2.36459255
+		85mm	Balade	2025 04 18 17 00 00	48.87177211, 2.36459255
+			Scenes	2025 04 20 16 00 00	48.88082524, 2.36210346
+		50mm	Scenes	2025 04 21 18 00 00	48.85385155, 2.36964583
+		50mm	Hasard ludique	2025 04 26 17 00 00	48.89575261, 2.32966483
+		50mm	Hasard ludique	2025 04 26 17 00 00	48.89575261, 2.32966483
+		50mm	Hasard ludique	2025 04 26 17 00 00	48.89575261, 2.32966483
+		50mm	Hasard ludique	2025 04 26 17 00 00	48.89575261, 2.32966483
+		50mm	Hasard ludique	2025 04 26 17 00 00	48.89575261, 2.32966483
+		50mm	Hasard ludique	2025 04 26 17 00 00	48.89575261, 2.32966483
+		50mm	Hasard ludique	2025 04 26 17 00 00	48.89575261, 2.32966483
+		50mm	Hasard ludique	2025 04 26 17 00 00	48.89575261, 2.32966483
+		50mm	Hasard ludique	2025 04 26 17 00 00	48.89575261, 2.32966483
+		50mm	Hasard ludique	2025 04 26 17 00 00	48.89575261, 2.32966483
+		50mm	Hasard ludique	2025 04 26 17 00 00	48.89575261, 2.32966483
+		50mm	Hasard ludique	2025 04 26 17 00 00	48.89575261, 2.32966483
+		50mm	Hasard ludique	2025 04 26 17 00 00	48.89575261, 2.32966483
+		50mm	Hasard ludique	2025 04 26 17 00 00	48.89575261, 2.32966483
+		50mm	Hasard ludique	2025 04 26 17 00 00	48.89575261, 2.32966483
+		50mm	Repu	2025 04 27 17 00 00	48.86817299, 2.36290812
+#Description Kodak Portra
+#ImageDescription Kodak Portra
+#Artist Jean-Baptiste Skutnik
+#Author Jean-Baptiste Skutnik
+#ISO 160
+#Make Nikon
+#Model F3
+; vim: set list number noexpandtab:
+"#;
+
+    insta::assert_debug_snapshot!(read_tse(tse.as_bytes()).unwrap());
+}
 
 #[test]
 fn test_selection_contains() {

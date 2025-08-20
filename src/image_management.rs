@@ -1,14 +1,11 @@
 use crate::{
+    Error,
     gps::{GpsRef, GpsTag},
     models::ExposureData,
 };
 use image::{DynamicImage, GrayImage, ImageEncoder, RgbImage, codecs::jpeg::JpegEncoder};
-use std::{
-    error::Error,
-    io::{Cursor, Seek, Write},
-};
+use std::io::{Cursor, Seek, Write};
 use tiff::{
-    TiffError,
     encoder::{
         Compression, DirectoryEncoder, DirectoryOffset, Predictor, TiffEncoder, TiffKindStandard,
         colortype,
@@ -48,7 +45,7 @@ pub fn encode_jpeg_with_exif<O: Write>(
     input: DynamicImage,
     output: O,
     data: &ExposureData,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), Error> {
     let mut f = Vec::new();
     let mut encoder = TiffEncoder::new(Cursor::new(&mut f))?;
 
@@ -92,7 +89,7 @@ pub fn encode_tiff_with_exif<O: Write + Seek>(
     input: DynamicImage,
     output: O,
     data: &ExposureData,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), Error> {
     let mut encoder = TiffEncoder::new(output)?
         .with_compression(Compression::Lzw)
         .with_predictor(Predictor::Horizontal);
@@ -135,7 +132,7 @@ pub fn encode_tiff_with_exif<O: Write + Seek>(
 pub fn encode_exif<'a, W: Write + Seek>(
     data: &'a ExposureData,
     encoder: &mut DirectoryEncoder<'a, W, TiffKindStandard>,
-) -> Result<(), TiffError> {
+) -> Result<(), Error> {
     if let Some(value) = &data.author {
         encoder.write_tag(Tag::Artist, value.as_str())?;
     }
@@ -177,7 +174,7 @@ pub fn encode_exif<'a, W: Write + Seek>(
 pub fn encode_exif_ifd<W: Write + Seek>(
     data: &ExposureData,
     encoder: &mut TiffEncoder<W>,
-) -> Result<DirectoryOffset<TiffKindStandard>, TiffError> {
+) -> Result<DirectoryOffset<TiffKindStandard>, Error> {
     let mut dir = encoder.extra_directory()?;
 
     if let Some(iso) = &data.iso {
@@ -196,14 +193,15 @@ pub fn encode_exif_ifd<W: Write + Seek>(
         )?;
     }
 
-    dir.finish_with_offsets()
+    Ok(dir.finish_with_offsets()?)
 }
 
 pub fn encode_gps_ifd<W: Write + Seek>(
     data: &ExposureData,
     encoder: &mut TiffEncoder<W>,
-) -> Result<Option<DirectoryOffset<TiffKindStandard>>, TiffError> {
-    data.gps
+) -> Result<Option<DirectoryOffset<TiffKindStandard>>, Error> {
+    Ok(data
+        .gps
         .map(|coords| {
             let mut gps = encoder.extra_directory()?;
 
@@ -229,5 +227,5 @@ pub fn encode_gps_ifd<W: Write + Seek>(
 
             gps.finish_with_offsets()
         })
-        .transpose()
+        .transpose()?)
 }

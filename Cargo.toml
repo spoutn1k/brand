@@ -55,3 +55,6 @@ bench = false
 name = "split"
 test = false
 bench = false
+
+[dev-dependencies]
+insta = { version = "1.43.1", features = ["json"] }

@@ -10,7 +10,9 @@ use crate::{
         MacroError, SessionStorageExt, body, el, event_target, query_id, query_selector,
         roll_input, roll_placeholder, storage,
     },
-    models::{Data, ExposureSpecificData, FileMetadata, Meta, Orientation, RollData},
+    models::{
+        Data, ExposureSpecificData, FileMetadata, Meta, Orientation, RollData, TseParseError,
+    },
 };
 use controller::{UIExposureUpdate, UIRollUpdate, Update};
 use futures_lite::StreamExt;
@@ -49,6 +51,16 @@ pub enum Error {
     MissingKey(String),
     #[error(transparent)]
     Image(#[from] image::ImageError),
+    #[error(transparent)]
+    ParseInt(#[from] std::num::ParseIntError),
+    #[error(transparent)]
+    ParseTse(#[from] TseParseError),
+    #[error(transparent)]
+    Logging(#[from] log::SetLoggerError),
+    #[error(transparent)]
+    Tiff(#[from] tiff::TiffError),
+    #[error(transparent)]
+    Unsupported(#[from] image::error::UnsupportedError),
 }
 
 impl From<JsValue> for Error {

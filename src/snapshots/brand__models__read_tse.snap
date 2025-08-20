@@ -1,0 +1,749 @@
+---
+source: src/models.rs
+expression: read_tse(tse.as_bytes()).unwrap()
+---
+Data {
+    roll: RollData {
+        author: Some(
+            "Jean-Baptiste Skutnik",
+        ),
+        make: Some(
+            "Nikon",
+        ),
+        model: Some(
+            "F3",
+        ),
+        iso: Some(
+            "160",
+        ),
+        description: Some(
+            "Kodak Portra",
+        ),
+    },
+    exposures: {
+        1: ExposureSpecificData {
+            sspeed: None,
+            aperture: Some(
+                "2.8",
+            ),
+            lens: Some(
+                "50mm",
+            ),
+            comment: Some(
+                "Balade dans Paris",
+            ),
+            date: Some(
+                2025-04-10T14:00:00,
+            ),
+            gps: Some(
+                (
+                    48.86467241,
+                    2.32135534,
+                ),
+            ),
+        },
+        2: ExposureSpecificData {
+            sspeed: None,
+            aperture: Some(
+                "1.8",
+            ),
+            lens: Some(
+                "50mm",
+            ),
+            comment: Some(
+                "Balade dans Paris",
+            ),
+            date: Some(
+                2025-04-10T14:00:00,
+            ),
+            gps: Some(
+                (
+                    48.86467241,
+                    2.32135534,
+                ),
+            ),
+        },
+        3: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "50mm",
+            ),
+            comment: Some(
+                "Balade dans Paris",
+            ),
+            date: Some(
+                2025-04-10T14:00:00,
+            ),
+            gps: Some(
+                (
+                    48.86351491,
+                    2.31966019,
+                ),
+            ),
+        },
+        4: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "50mm",
+            ),
+            comment: Some(
+                "Balade dans Paris",
+            ),
+            date: Some(
+                2025-04-10T14:00:00,
+            ),
+            gps: Some(
+                (
+                    48.84697524,
+                    2.33650446,
+                ),
+            ),
+        },
+        5: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "85mm",
+            ),
+            comment: Some(
+                "Balade dans Paris",
+            ),
+            date: Some(
+                2025-04-10T14:00:00,
+            ),
+            gps: Some(
+                (
+                    48.84697524,
+                    2.33650446,
+                ),
+            ),
+        },
+        6: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "85mm",
+            ),
+            comment: Some(
+                "Balade dans Paris",
+            ),
+            date: Some(
+                2025-04-10T14:00:00,
+            ),
+            gps: Some(
+                (
+                    48.84697524,
+                    2.33650446,
+                ),
+            ),
+        },
+        7: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "85mm",
+            ),
+            comment: Some(
+                "Balade dans Paris",
+            ),
+            date: Some(
+                2025-04-10T14:00:00,
+            ),
+            gps: Some(
+                (
+                    48.84697524,
+                    2.33650446,
+                ),
+            ),
+        },
+        8: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "85mm",
+            ),
+            comment: Some(
+                "Balade dans Paris",
+            ),
+            date: Some(
+                2025-04-10T14:00:00,
+            ),
+            gps: Some(
+                (
+                    48.8472506,
+                    2.34434724,
+                ),
+            ),
+        },
+        9: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "50mm",
+            ),
+            comment: Some(
+                "Balade dans Paris",
+            ),
+            date: Some(
+                2025-04-10T14:00:00,
+            ),
+            gps: Some(
+                (
+                    48.8472506,
+                    2.34434724,
+                ),
+            ),
+        },
+        10: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "85mm",
+            ),
+            comment: Some(
+                "Balade dans Paris",
+            ),
+            date: Some(
+                2025-04-10T14:00:00,
+            ),
+            gps: Some(
+                (
+                    48.85359036,
+                    2.34680414,
+                ),
+            ),
+        },
+        11: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "50mm",
+            ),
+            comment: Some(
+                "Tourisme",
+            ),
+            date: Some(
+                2025-04-15T16:00:00,
+            ),
+            gps: Some(
+                (
+                    48.86167979,
+                    2.29603529,
+                ),
+            ),
+        },
+        12: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "50mm",
+            ),
+            comment: Some(
+                "Tourisme",
+            ),
+            date: Some(
+                2025-04-15T16:00:00,
+            ),
+            gps: Some(
+                (
+                    48.86167979,
+                    2.29603529,
+                ),
+            ),
+        },
+        13: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "50mm",
+            ),
+            comment: Some(
+                "Tourisme",
+            ),
+            date: Some(
+                2025-04-15T16:00:00,
+            ),
+            gps: Some(
+                (
+                    48.86167979,
+                    2.29603529,
+                ),
+            ),
+        },
+        14: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "50mm",
+            ),
+            comment: Some(
+                "Tourisme",
+            ),
+            date: Some(
+                2025-04-15T16:00:00,
+            ),
+            gps: Some(
+                (
+                    48.86167979,
+                    2.29603529,
+                ),
+            ),
+        },
+        15: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "20mm",
+            ),
+            comment: Some(
+                "Ile de la cité",
+            ),
+            date: Some(
+                2025-04-17T18:00:00,
+            ),
+            gps: Some(
+                (
+                    48.85519988,
+                    2.34651446,
+                ),
+            ),
+        },
+        16: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "20mm",
+            ),
+            comment: Some(
+                "Ile de la cité",
+            ),
+            date: Some(
+                2025-04-17T18:00:00,
+            ),
+            gps: Some(
+                (
+                    48.85519988,
+                    2.34651446,
+                ),
+            ),
+        },
+        17: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "85mm",
+            ),
+            comment: Some(
+                "Balade",
+            ),
+            date: Some(
+                2025-04-18T17:00:00,
+            ),
+            gps: Some(
+                (
+                    48.87177211,
+                    2.36459255,
+                ),
+            ),
+        },
+        18: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "85mm",
+            ),
+            comment: Some(
+                "Balade",
+            ),
+            date: Some(
+                2025-04-18T17:00:00,
+            ),
+            gps: Some(
+                (
+                    48.87177211,
+                    2.36459255,
+                ),
+            ),
+        },
+        19: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "85mm",
+            ),
+            comment: Some(
+                "Balade",
+            ),
+            date: Some(
+                2025-04-18T17:00:00,
+            ),
+            gps: Some(
+                (
+                    48.87177211,
+                    2.36459255,
+                ),
+            ),
+        },
+        20: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "85mm",
+            ),
+            comment: Some(
+                "Balade",
+            ),
+            date: Some(
+                2025-04-18T17:00:00,
+            ),
+            gps: Some(
+                (
+                    48.87177211,
+                    2.36459255,
+                ),
+            ),
+        },
+        21: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: None,
+            comment: Some(
+                "Scenes",
+            ),
+            date: Some(
+                2025-04-20T16:00:00,
+            ),
+            gps: Some(
+                (
+                    48.88082524,
+                    2.36210346,
+                ),
+            ),
+        },
+        22: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "50mm",
+            ),
+            comment: Some(
+                "Scenes",
+            ),
+            date: Some(
+                2025-04-21T18:00:00,
+            ),
+            gps: Some(
+                (
+                    48.85385155,
+                    2.36964583,
+                ),
+            ),
+        },
+        23: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "50mm",
+            ),
+            comment: Some(
+                "Hasard ludique",
+            ),
+            date: Some(
+                2025-04-26T17:00:00,
+            ),
+            gps: Some(
+                (
+                    48.89575261,
+                    2.32966483,
+                ),
+            ),
+        },
+        24: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "50mm",
+            ),
+            comment: Some(
+                "Hasard ludique",
+            ),
+            date: Some(
+                2025-04-26T17:00:00,
+            ),
+            gps: Some(
+                (
+                    48.89575261,
+                    2.32966483,
+                ),
+            ),
+        },
+        25: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "50mm",
+            ),
+            comment: Some(
+                "Hasard ludique",
+            ),
+            date: Some(
+                2025-04-26T17:00:00,
+            ),
+            gps: Some(
+                (
+                    48.89575261,
+                    2.32966483,
+                ),
+            ),
+        },
+        26: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "50mm",
+            ),
+            comment: Some(
+                "Hasard ludique",
+            ),
+            date: Some(
+                2025-04-26T17:00:00,
+            ),
+            gps: Some(
+                (
+                    48.89575261,
+                    2.32966483,
+                ),
+            ),
+        },
+        27: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "50mm",
+            ),
+            comment: Some(
+                "Hasard ludique",
+            ),
+            date: Some(
+                2025-04-26T17:00:00,
+            ),
+            gps: Some(
+                (
+                    48.89575261,
+                    2.32966483,
+                ),
+            ),
+        },
+        28: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "50mm",
+            ),
+            comment: Some(
+                "Hasard ludique",
+            ),
+            date: Some(
+                2025-04-26T17:00:00,
+            ),
+            gps: Some(
+                (
+                    48.89575261,
+                    2.32966483,
+                ),
+            ),
+        },
+        29: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "50mm",
+            ),
+            comment: Some(
+                "Hasard ludique",
+            ),
+            date: Some(
+                2025-04-26T17:00:00,
+            ),
+            gps: Some(
+                (
+                    48.89575261,
+                    2.32966483,
+                ),
+            ),
+        },
+        30: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "50mm",
+            ),
+            comment: Some(
+                "Hasard ludique",
+            ),
+            date: Some(
+                2025-04-26T17:00:00,
+            ),
+            gps: Some(
+                (
+                    48.89575261,
+                    2.32966483,
+                ),
+            ),
+        },
+        31: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "50mm",
+            ),
+            comment: Some(
+                "Hasard ludique",
+            ),
+            date: Some(
+                2025-04-26T17:00:00,
+            ),
+            gps: Some(
+                (
+                    48.89575261,
+                    2.32966483,
+                ),
+            ),
+        },
+        32: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "50mm",
+            ),
+            comment: Some(
+                "Hasard ludique",
+            ),
+            date: Some(
+                2025-04-26T17:00:00,
+            ),
+            gps: Some(
+                (
+                    48.89575261,
+                    2.32966483,
+                ),
+            ),
+        },
+        33: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "50mm",
+            ),
+            comment: Some(
+                "Hasard ludique",
+            ),
+            date: Some(
+                2025-04-26T17:00:00,
+            ),
+            gps: Some(
+                (
+                    48.89575261,
+                    2.32966483,
+                ),
+            ),
+        },
+        34: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "50mm",
+            ),
+            comment: Some(
+                "Hasard ludique",
+            ),
+            date: Some(
+                2025-04-26T17:00:00,
+            ),
+            gps: Some(
+                (
+                    48.89575261,
+                    2.32966483,
+                ),
+            ),
+        },
+        35: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "50mm",
+            ),
+            comment: Some(
+                "Hasard ludique",
+            ),
+            date: Some(
+                2025-04-26T17:00:00,
+            ),
+            gps: Some(
+                (
+                    48.89575261,
+                    2.32966483,
+                ),
+            ),
+        },
+        36: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "50mm",
+            ),
+            comment: Some(
+                "Hasard ludique",
+            ),
+            date: Some(
+                2025-04-26T17:00:00,
+            ),
+            gps: Some(
+                (
+                    48.89575261,
+                    2.32966483,
+                ),
+            ),
+        },
+        37: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "50mm",
+            ),
+            comment: Some(
+                "Hasard ludique",
+            ),
+            date: Some(
+                2025-04-26T17:00:00,
+            ),
+            gps: Some(
+                (
+                    48.89575261,
+                    2.32966483,
+                ),
+            ),
+        },
+        38: ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "50mm",
+            ),
+            comment: Some(
+                "Repu",
+            ),
+            date: Some(
+                2025-04-27T17:00:00,
+            ),
+            gps: Some(
+                (
+                    48.86817299,
+                    2.36290812,
+                ),
+            ),
+        },
+    },
+}

@@ -3,7 +3,7 @@ use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use std::{
     cmp,
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fmt::{self, Display, Formatter},
     mem,
     ops::Range,
@@ -45,7 +45,7 @@ mod tse_date_format {
 #[derive(Clone, Default, Debug, Deserialize, Serialize)]
 pub struct Data {
     pub roll: RollData,
-    pub exposures: HashMap<u32, ExposureSpecificData>,
+    pub exposures: BTreeMap<u32, ExposureSpecificData>,
 }
 
 impl Data {

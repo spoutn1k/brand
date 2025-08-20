@@ -164,6 +164,13 @@ pub fn encode_exif<'a, W: Write + Seek>(
         _ => (),
     }
 
+    if let Some(date) = &data.date {
+        encoder.write_tag(
+            Tag::DateTime,
+            date.format("%Y:%m:%d %H:%M:%S").to_string().as_str(),
+        )?;
+    }
+
     Ok(())
 }
 
@@ -180,6 +187,13 @@ pub fn encode_exif_ifd<W: Write + Seek>(
 
     if let Some(shutter_speed) = &data.sspeed {
         dir.write_tag(Tag::Unknown(0x9201), shutter_speed.parse::<u16>().unwrap())?;
+    }
+
+    if let Some(date) = &data.date {
+        dir.write_tag(
+            Tag::Unknown(0x9003),
+            date.format("%Y:%m:%d %H:%M:%S").to_string().as_str(),
+        )?;
     }
 
     dir.finish_with_offsets()

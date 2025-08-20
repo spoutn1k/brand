@@ -94,10 +94,7 @@ pub enum ProcessStatus {
     Error(String),
 }
 
-async fn process_exposure(
-    metadata: &FileMetadata,
-    s: async_channel::Sender<ProcessStatus>,
-) -> Result<(), Error> {
+async fn process_exposure(metadata: &FileMetadata) -> Result<(), Error> {
     let photo_data = web_fs::read(
         metadata
             .local_fs_path
@@ -143,24 +140,92 @@ async fn process_exposure(
 
     log::info!("Exported to TIFF && JPEG successfully");
 
-    s.send(ProcessStatus::Success).await?;
-
     Ok(())
 }
 
-static ARCHIVE_SIZE: usize = 2 * 1024 * 1024 * 1024; // 2GB
+static ARCHIVE_SIZE: usize = 2 * 1024 * 1024 * 1024 - 1; // 2GiB
 
 fn create_archive() -> tar::Builder<Cursor<Vec<u8>>> {
-    //let archive = unsafe {
-    //    let ptr = std::alloc::alloc(std::alloc::Layout::from_size_align_unchecked(
-    //        2 * 1024 * 1024 * 1024,
-    //        1,
-    //    ));
-
-    //    std::slice::from_raw_parts_mut(ptr, 2 * 1024 * 1024 * 1024)
-    //};
-
     tar::Builder::new(Cursor::new(Vec::<u8>::with_capacity(ARCHIVE_SIZE)))
+}
+
+trait AddFileExt {
+    fn add_file<S: AsRef<Path>>(&mut self, file: &[u8], path: S) -> Result<(), Error>;
+}
+
+impl<W: std::io::Write> AddFileExt for tar::Builder<W> {
+    fn add_file<S: AsRef<Path>>(&mut self, file: &[u8], path: S) -> Result<(), Error> {
+        let secs = instant::SystemTime::now()
+            .duration_since(instant::SystemTime::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        let mut header = tar::Header::new_gnu();
+        header.set_size(file.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        header.set_mtime(secs);
+        header.as_gnu_mut().map(|h| {
+            h.set_atime(secs);
+            h.set_ctime(secs);
+        });
+
+        Ok(self.append_data(&mut header, path.as_ref(), Cursor::new(file))?)
+    }
+}
+
+async fn export_dir<P: AsRef<Path>>(path: P, folder_name: PathBuf) -> Result<(), Error> {
+    let mut archive_builder = create_archive();
+
+    let data: Data = serde_json::from_str(&storage!().get_existing("data")?)?;
+    let file = data.to_string();
+
+    archive_builder.add_file(file.as_bytes(), folder_name.clone().join("index.tse"))?;
+
+    let mut archive_num = 1;
+    let mut counter: usize = 0;
+    let mut stream = web_fs::read_dir(path).await?;
+    while let Some(entry) = stream.next().await {
+        let entry = entry?;
+
+        if entry.file_type().await?.is_dir() {
+            continue;
+        }
+
+        let file = web_fs::read(entry.path()).await?;
+
+        if counter + file.len() > ARCHIVE_SIZE {
+            download_buffer(
+                archive_builder.into_inner()?.into_inner().as_slice(),
+                &format!("{}-{archive_num}.tar", folder_name.display()),
+                "application/x-tar",
+            )?;
+            archive_num += 1;
+            counter = 0;
+            archive_builder = create_archive();
+        }
+        counter += file.len();
+
+        log::info!(
+            "Adding file {} to archive ({} bytes, {}MB total)",
+            entry.path().display(),
+            file.len(),
+            counter / (1024 * 1024)
+        );
+
+        archive_builder.add_file(
+            &file,
+            folder_name
+                .clone()
+                .join(entry.path().file_name().ok_or(JsValue::from_str("wow"))?),
+        )?;
+    }
+
+    download_buffer(
+        archive_builder.into_inner()?.into_inner().as_slice(),
+        &format!("{}-{archive_num}.tar", folder_name.display()),
+        "application/x-tar",
+    )
 }
 
 async fn process_images() -> Result<(), Error> {
@@ -170,83 +235,19 @@ async fn process_images() -> Result<(), Error> {
             .ok_or(Error::MissingKey("metadata".into()))?,
     )?;
 
-    let (s, r) = async_channel::unbounded();
+    let folder_name = controller::generate_folder_name().unwrap_or_else(|e| {
+        log::error!("Failed to generate folder name: {e:?}");
+        "roll".to_string()
+    });
 
     for (_, entry) in data {
-        process_exposure(&entry, s.clone()).await?;
+        process_exposure(&entry).await?;
     }
 
-    drop(s);
-
-    while let Ok(status) = r.recv().await {
-        match status {
-            ProcessStatus::Success => {
-                log::info!("Exposure processed successfully ({})", r.sender_count())
-            }
-            ProcessStatus::Error(e) => log::error!("Error processing exposure: {e}"),
-        }
-    }
-
-    log::info!("All exposures processed");
-
-    {
-        let mut archive_builder = create_archive();
-
-        let mut archive_num = 1;
-        let mut counter: usize = 0;
-        let mut stream = web_fs::read_dir(".").await?;
-        while let Some(entry) = stream.next().await {
-            let entry = entry?;
-
-            if entry.file_type().await?.is_dir() {
-                continue;
-            }
-
-            let file = web_fs::read(entry.path()).await?;
-
-            if counter + file.len() > ARCHIVE_SIZE {
-                let archive_name = format!("roll_{archive_num}.tar");
-                download_buffer(
-                    archive_builder.into_inner()?.into_inner().as_slice(),
-                    &archive_name,
-                    "application/x-tar",
-                )?;
-                archive_num += 1;
-                counter = 0;
-                archive_builder = create_archive();
-            }
-            counter += file.len();
-
-            log::info!(
-                "Adding file {} to archive ({} bytes, {}MB total)",
-                entry.path().display(),
-                file.len(),
-                counter / (1024 * 1024)
-            );
-
-            let mut header = tar::Header::new_gnu();
-            header.set_size(file.len() as u64);
-            header.set_mode(0o644);
-            header.set_cksum();
-
-            archive_builder.append_data(
-                &mut header,
-                entry.path().file_name().ok_or(JsValue::from_str("wow"))?,
-                Cursor::new(file),
-            )?;
-        }
-
-        download_buffer(
-            archive_builder.into_inner()?.into_inner().as_slice(),
-            &format!("roll_{archive_num}.tar"),
-            "application/x-tar",
-        )?;
-    }
-
-    Ok(())
+    export_dir(".", folder_name.into()).await
 }
 
-fn download_buffer(buffer: &[u8], filename: &str, mime_type: &str) -> Result<(), JsValue> {
+fn download_buffer(buffer: &[u8], filename: &str, mime_type: &str) -> Result<(), Error> {
     let bytes = js_sys::Uint8Array::new(&unsafe { js_sys::Uint8Array::view(&buffer) }.into());
 
     let array = js_sys::Array::new();

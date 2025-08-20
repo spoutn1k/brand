@@ -259,6 +259,45 @@ fn exposure_update(index: u32, exp: ExposureSpecificData) -> Result<(), Error> {
     Ok(())
 }
 
+pub fn generate_folder_name() -> Result<String, Error> {
+    let storage = storage!();
+    let data: Data = serde_json::from_str(&storage.get_existing("data")?)?;
+
+    let min = data
+        .exposures
+        .keys()
+        .min()
+        .and_then(|&k| data.exposures.get(&k))
+        .and_then(|e| e.date)
+        .map(|d| d.format("%Y%m").to_string());
+
+    let max = data
+        .exposures
+        .keys()
+        .max()
+        .and_then(|&k| data.exposures.get(&k))
+        .and_then(|e| e.date)
+        .map(|d| d.format("%Y%m").to_string());
+
+    let mut folder_name = match (min, max) {
+        (Some(min), Some(max)) if min == max => min,
+        (Some(min), Some(max)) => format!("{}_{}", min, max),
+        (Some(min), None) => min,
+        (None, Some(max)) => max,
+        (None, None) => "".into(),
+    };
+
+    if let Some(film) = data
+        .roll
+        .description
+        .and_then(|f| f.split(" ").last().map(String::from))
+    {
+        folder_name = format!("{folder_name}_{film}");
+    }
+
+    Ok(folder_name)
+}
+
 pub fn get_selection() -> Result<Selection, Error> {
     serde_json::from_str(&storage!().get_item("selected")?.unwrap_or_default())
         .or_else(|_| Ok(Selection::default()))

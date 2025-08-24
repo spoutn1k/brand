@@ -1,6 +1,6 @@
 use crate::{
-    Error,
     controller::{ExposureUpdate, RollUpdate},
+    Error,
 };
 use chrono::{DateTime, NaiveDateTime};
 use serde::{Deserialize, Serialize};
@@ -13,11 +13,11 @@ use std::{
     path::PathBuf,
 };
 use winnow::{
-    ModalResult, Parser as _,
     ascii::{alphanumeric1, float, tab},
     combinator::{opt, preceded, separated_pair, seq},
     error::{StrContext, StrContextValue},
     token::take_till,
+    ModalResult, Parser as _,
 };
 
 pub static MAX_EXPOSURES: u32 = 80;
@@ -138,6 +138,18 @@ pub struct Data {
 }
 
 impl Data {
+    pub fn with_count(count: u32) -> Self {
+        let exposures = (1..=count)
+            .into_iter()
+            .map(|index| (index, ExposureSpecificData::default()))
+            .collect();
+
+        Self {
+            exposures,
+            ..Default::default()
+        }
+    }
+
     pub fn generate(&self, index: u32) -> ExposureData {
         let exposure = self.exposures.get(&index).cloned().unwrap_or_default();
 

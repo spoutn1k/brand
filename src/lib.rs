@@ -7,12 +7,10 @@ pub mod models;
 
 use crate::{
     macros::{
-        MacroError, SessionStorageExt, body, el, event_target, query_id, query_selector,
-        roll_input, roll_placeholder, storage,
+        body, el, event_target, query_id, query_selector, roll_input, roll_placeholder, storage,
+        MacroError, SessionStorageExt,
     },
-    models::{
-        Data, ExposureSpecificData, FileMetadata, Meta, Orientation, RollData, TseParseError,
-    },
+    models::{Data, FileMetadata, Meta, Orientation, RollData, TseParseError, MAX_EXPOSURES},
 };
 use controller::{UIExposureUpdate, UIRollUpdate, Update};
 use futures_lite::StreamExt;
@@ -61,6 +59,8 @@ pub enum Error {
     Tiff(#[from] tiff::TiffError),
     #[error(transparent)]
     Unsupported(#[from] image::error::UnsupportedError),
+    #[error(transparent)]
+    Format(#[from] std::fmt::Error),
 }
 
 impl From<JsValue> for Error {
@@ -293,12 +293,65 @@ fn extract_index_from_filename(filename: &str) -> Option<u32> {
         .map(|i| i % 100)
 }
 
+#[derive(PartialEq, Eq, Default)]
+enum FileKind {
+    Image(ImageFormat),
+    Tse,
+    #[default]
+    Unknown,
+}
+
+impl From<PathBuf> for FileKind {
+    fn from(value: PathBuf) -> Self {
+        value
+            .extension()
+            .and_then(|value| {
+                if value == "tse" {
+                    return Some(Self::Tse);
+                }
+
+                ImageFormat::from_extension(value).map(Self::Image)
+            })
+            .unwrap_or_default()
+    }
+}
+
+async fn import_tse(entry: &web_sys::FileSystemFileEntry) -> Result<(), Error> {
+    let file_load = Closure::once(move |file: web_sys::File| -> JsResult {
+        let reader = web_sys::FileReader::new()?;
+
+        let r = reader.clone();
+        let closure = Closure::once(move |_: web_sys::Event| -> JsResult {
+            let raw = r.result()?.as_string().unwrap_or_default();
+            let data = models::read_tse(Cursor::new(raw))?;
+
+            storage!().set_item("data", &serde_json::to_string(&data).unwrap())?;
+            controller::overhaul_data(data).js_error()
+        });
+
+        reader.set_onloadend(Some(closure.as_ref().unchecked_ref()));
+        closure.forget();
+        reader.read_as_text(&file)?;
+
+        Ok(())
+    });
+
+    entry.file_with_callback(file_load.as_ref().unchecked_ref());
+    file_load.forget();
+
+    Ok(())
+}
+
 fn setup_editor_from_files(files: &[web_sys::FileSystemFileEntry]) -> Result<(), Error> {
     fill_roll_fields(&RollData::default())?;
 
-    let metadata = files
+    let (images, other): (Vec<_>, Vec<_>) = files
+        .into_iter()
+        .partition(|f| matches!(FileKind::from(PathBuf::from(&f.name())), FileKind::Image(_)));
+
+    let metadata = images
         .iter()
-        .map(|f: &web_sys::FileSystemFileEntry| {
+        .map(|f| {
             (
                 PathBuf::from(f.name()),
                 FileMetadata {
@@ -320,22 +373,30 @@ fn setup_editor_from_files(files: &[web_sys::FileSystemFileEntry]) -> Result<(),
         &serde_json::to_string(&metadata.iter().cloned().collect::<Meta>())?,
     )?;
 
-    let mut template = Data::default();
-    for index in 1..=files.len() as u32 {
-        template
-            .exposures
-            .insert(index, ExposureSpecificData::default());
+    if let Some(file) = other
+        .into_iter()
+        .find(|f| matches!(FileKind::from(PathBuf::from(&f.name())), FileKind::Tse))
+        .cloned()
+    {
+        wasm_bindgen_futures::spawn_local(async move {
+            import_tse(&file).await.aquiesce();
+        });
+    }
 
+    for index in 1..=images.len() as u32 {
         create_row(index, false)?;
     }
 
-    storage!().set_item("data", &serde_json::to_string(&template)?)?;
+    storage!().set_item(
+        "data",
+        &serde_json::to_string(&Data::with_count(images.len() as u32))?,
+    )?;
 
     wasm_bindgen_futures::spawn_local(async move {
         web_fs::create_dir("originals").await.aquiesce();
     });
 
-    for ((file_id, mut meta), entry) in metadata.into_iter().zip(files) {
+    for ((file_id, mut meta), entry) in metadata.into_iter().zip(images) {
         let name = entry.name();
 
         // We need to get the web_sys::File from the FileSystemFileEntry, so a closure is used,
@@ -684,18 +745,20 @@ fn setup_editor_from_data(contents: Data) -> Result<(), Error> {
     let selection = controller::get_selection()?;
 
     storage!().set_item("data", &serde_json::to_string(&contents)?)?;
-    let mut exposures: Vec<(u32, ExposureSpecificData)> = contents.exposures.into_iter().collect();
-    exposures.sort_by_key(|e| e.0);
-
-    for (index, _) in &exposures {
-        create_row(*index, selection.contains(*index)).aquiesce();
+    let exposures = contents
+        .exposures
+        .keys()
+        .max()
+        .unwrap_or(&MAX_EXPOSURES)
+        .clone();
+    for index in 1..=exposures {
+        create_row(index, selection.contains(index)).aquiesce();
     }
 
+    controller::overhaul_data(contents.clone())?;
+
     wasm_bindgen_futures::spawn_local(async move {
-        for (index, data) in exposures {
-            controller::update(Update::Exposure(index, data.clone()))
-                .await
-                .aquiesce();
+        for (index, _) in contents.exposures {
             controller::update(Update::ExposureImage(index))
                 .await
                 .aquiesce();
@@ -709,12 +772,6 @@ fn setup_editor_from_data(contents: Data) -> Result<(), Error> {
 }
 
 pub fn setup() -> JsResult {
-    wasm_bindgen_futures::spawn_local(async move {
-        let mut fs_log = String::new();
-        fs::print_dir_recursively("", 0, &mut fs_log).await;
-        log::info!("{}", fs_log);
-    });
-
     let selector = query_id!("photoselect", web_sys::HtmlInputElement);
     disable_click(&selector)?;
     setup_drag_drop(&selector)?;
@@ -727,13 +784,6 @@ pub fn setup() -> JsResult {
     }
 
     Ok(())
-}
-
-#[wasm_bindgen]
-pub fn clear() {
-    wasm_bindgen_futures::spawn_local(async move {
-        fs::clear_dir("").await.aquiesce();
-    });
 }
 
 #[wasm_bindgen]

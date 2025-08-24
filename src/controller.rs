@@ -1,13 +1,13 @@
 use crate::{
-    Aquiesce, Error, JsResult, Orientation,
-    macros::{MacroError, SessionStorageExt, query_id, storage},
+    macros::{query_id, storage, MacroError, SessionStorageExt},
     models::{
-        Data, ExposureData, ExposureSpecificData, FileMetadata, MAX_EXPOSURES, Meta, Selection,
+        Data, ExposureData, ExposureSpecificData, FileMetadata, Meta, Selection, MAX_EXPOSURES,
     },
+    Aquiesce, Error, JsResult, Orientation,
 };
 use base64::prelude::*;
 use chrono::NaiveDateTime;
-use image::{ImageReader, codecs::jpeg::JpegEncoder, imageops::FilterType};
+use image::{codecs::jpeg::JpegEncoder, imageops::FilterType, ImageReader};
 use std::{convert::TryInto, io::Cursor, path::PathBuf};
 use wasm_bindgen::{JsCast, JsValue};
 
@@ -228,10 +228,7 @@ fn roll_update(change: UIRollUpdate) -> Result<(), Error> {
     Ok(())
 }
 
-fn exposure_update(index: u32, exp: ExposureSpecificData) -> Result<(), Error> {
-    let storage = storage!();
-    let mut data: Data = serde_json::from_str(&storage.get_existing("data")?)?;
-
+pub fn exposure_update(index: u32, exp: ExposureSpecificData) -> Result<(), Error> {
     [
         UIExposureUpdate::ShutterSpeed(exp.sspeed.clone().unwrap_or_default()),
         UIExposureUpdate::Aperture(exp.aperture.clone().unwrap_or_default()),
@@ -239,7 +236,7 @@ fn exposure_update(index: u32, exp: ExposureSpecificData) -> Result<(), Error> {
         UIExposureUpdate::Lens(exp.lens.clone().unwrap_or_default()),
         UIExposureUpdate::Date(
             exp.date
-                .map(|d| format!("{}", d.format("%Y-%m-%dT%H:%M:%S")))
+                .map(|d| d.format("%Y-%m-%dT%H:%M:%S").to_string())
                 .unwrap_or_default(),
         ),
         UIExposureUpdate::Gps(
@@ -252,16 +249,30 @@ fn exposure_update(index: u32, exp: ExposureSpecificData) -> Result<(), Error> {
     .map(|c| update_exposure_ui(index, c))
     .collect::<Result<Vec<_>, _>>()?;
 
-    data.exposures.insert(index, exp);
+    Ok(())
+}
 
-    storage.set_item("data", &serde_json::to_string(&data)?)?;
+pub fn overhaul_data(contents: Data) -> Result<(), Error> {
+    [
+        UIRollUpdate::Author(contents.roll.author.clone().unwrap_or_default()),
+        UIRollUpdate::Make(contents.roll.make.clone().unwrap_or_default()),
+        UIRollUpdate::Model(contents.roll.model.clone().unwrap_or_default()),
+        UIRollUpdate::Iso(contents.roll.iso.clone().unwrap_or_default()),
+        UIRollUpdate::Film(contents.roll.description.clone().unwrap_or_default()),
+    ]
+    .iter()
+    .map(update_roll_ui)
+    .collect::<Result<Vec<_>, _>>()?;
+
+    for (index, exp) in contents.exposures.into_iter() {
+        exposure_update(index, exp).aquiesce();
+    }
 
     Ok(())
 }
 
 pub fn generate_folder_name() -> Result<String, Error> {
-    let storage = storage!();
-    let data: Data = serde_json::from_str(&storage.get_existing("data")?)?;
+    let data: Data = serde_json::from_str(&storage!().get_existing("data")?)?;
 
     let min = data
         .exposures
@@ -426,5 +437,19 @@ fn update_exposure_ui(index: u32, data: &UIExposureUpdate) -> JsResult {
     };
 
     query_id!(id, web_sys::HtmlInputElement).set_value(contents);
+    Ok(())
+}
+
+fn update_roll_ui(data: &UIRollUpdate) -> JsResult {
+    let (id, contents) = match data {
+        UIRollUpdate::Author(value) => (&format!("roll-author-input"), value),
+        UIRollUpdate::Make(value) => (&format!("roll-make-input"), value),
+        UIRollUpdate::Model(value) => (&format!("roll-model-input"), value),
+        UIRollUpdate::Iso(value) => (&format!("roll-iso-input"), value),
+        UIRollUpdate::Film(value) => (&format!("roll-description-input"), value),
+    };
+
+    query_id!(id, web_sys::HtmlInputElement).set_value(contents);
+
     Ok(())
 }

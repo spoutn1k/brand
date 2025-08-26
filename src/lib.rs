@@ -368,9 +368,40 @@ fn setup_editor_from_files(files: &[web_sys::FileSystemFileEntry]) -> Result<(),
         })
         .collect::<Vec<(PathBuf, FileMetadata)>>();
 
+    let mut selected = std::collections::BTreeMap::new();
+    for ((p, m), i) in metadata.into_iter().zip(images) {
+        selected
+            .entry(m.index)
+            .and_modify(|((pi, mi), ii)| {
+                if m.file_type.as_ref().is_some_and(|t| t == "image/tiff") {
+                    *pi = p.clone();
+                    *mi = m.clone();
+                    *ii = i;
+                }
+            })
+            .or_insert(((p, m), i));
+    }
+
+    let mut metadata = vec![];
+    let mut images = vec![];
+
+    for (_, (m, i)) in selected {
+        metadata.push(m);
+        images.push(i);
+    }
+
     storage!().set_item(
         "metadata",
         &serde_json::to_string(&metadata.iter().cloned().collect::<Meta>())?,
+    )?;
+
+    for index in 1..=images.len() as u32 {
+        create_row(index, false)?;
+    }
+
+    storage!().set_item(
+        "data",
+        &serde_json::to_string(&Data::with_count(images.len() as u32))?,
     )?;
 
     if let Some(file) = other
@@ -382,15 +413,6 @@ fn setup_editor_from_files(files: &[web_sys::FileSystemFileEntry]) -> Result<(),
             import_tse(&file).await.aquiesce();
         });
     }
-
-    for index in 1..=images.len() as u32 {
-        create_row(index, false)?;
-    }
-
-    storage!().set_item(
-        "data",
-        &serde_json::to_string(&Data::with_count(images.len() as u32))?,
-    )?;
 
     wasm_bindgen_futures::spawn_local(async move {
         web_fs::create_dir("originals").await.aquiesce();

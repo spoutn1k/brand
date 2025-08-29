@@ -1,13 +1,13 @@
 use crate::{
-    macros::{query_id, storage, MacroError, SessionStorageExt},
-    models::{
-        Data, ExposureData, ExposureSpecificData, FileMetadata, Meta, Selection, MAX_EXPOSURES,
-    },
     Aquiesce, Error, JsResult, Orientation,
+    macros::{MacroError, SessionStorageExt, query_id, storage},
+    models::{
+        Data, ExposureData, ExposureSpecificData, FileMetadata, MAX_EXPOSURES, Meta, Selection,
+    },
 };
 use base64::prelude::*;
 use chrono::NaiveDateTime;
-use image::{codecs::jpeg::JpegEncoder, imageops::FilterType, ImageReader};
+use image::{ImageReader, codecs::jpeg::JpegEncoder, imageops::FilterType};
 use std::{convert::TryInto, io::Cursor, path::PathBuf};
 use wasm_bindgen::{JsCast, JsValue};
 
@@ -318,7 +318,7 @@ pub fn get_exposure_data(index: u32) -> Result<ExposureData, Error> {
     let storage = storage!();
     let data: Data = serde_json::from_str(&storage.get_existing("data")?)?;
 
-    Ok(data.generate(index))
+    Ok(data.spread_shots().generate(index))
 }
 
 fn toggle_selection(index: u32, shift: bool, ctrl: bool) -> Result<(), Error> {

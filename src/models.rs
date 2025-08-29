@@ -1,6 +1,6 @@
 use crate::{
-    controller::{ExposureUpdate, RollUpdate},
     Error,
+    controller::{ExposureUpdate, RollUpdate},
 };
 use chrono::{DateTime, NaiveDateTime};
 use serde::{Deserialize, Serialize};
@@ -13,11 +13,11 @@ use std::{
     path::PathBuf,
 };
 use winnow::{
+    ModalResult, Parser as _,
     ascii::{alphanumeric1, float, tab},
     combinator::{opt, preceded, separated_pair, seq},
     error::{StrContext, StrContextValue},
     token::take_till,
-    ModalResult, Parser as _,
 };
 
 pub static MAX_EXPOSURES: u32 = 80;
@@ -168,7 +168,9 @@ impl Data {
         }
     }
 
-    pub fn spread_shots(Data { roll, exposures }: Self) -> Self {
+    pub fn spread_shots(self) -> Self {
+        let Data { roll, exposures } = self;
+
         let mut exposures: Vec<_> = exposures.into_iter().collect();
         exposures.sort_by(|lhs, rhs| lhs.0.cmp(&rhs.0));
         let mut last = None;

@@ -24,7 +24,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use wasm_bindgen::prelude::*;
-use web_sys::{Blob, window};
+use web_sys::{Blob, MessageEvent};
 
 static ARCHIVE_SIZE: usize = 2 * 1024 * 1024 * 1024 - 1; // 2GiB
 
@@ -87,12 +87,12 @@ impl From<Error> for JsValue {
     }
 }
 
-pub trait JsError {
-    fn js_error(self) -> JsResult;
+pub trait JsError<T> {
+    fn js_error(self) -> JsResult<T>;
 }
 
-impl<E: std::error::Error> JsError for Result<(), E> {
-    fn js_error(self) -> JsResult {
+impl<T, E: std::error::Error> JsError<T> for Result<T, E> {
+    fn js_error(self) -> JsResult<T> {
         self.map_err(|e| JsValue::from_str(&e.to_string()))
     }
 }
@@ -132,8 +132,7 @@ async fn process_exposure(
         Orientation::Rotated270 => photo.rotate270(),
     };
 
-    let mut output = vec![];
-    output.reserve(2 * 1024 * 1024); // Reserve 2MB for the output
+    let mut output = Vec::with_capacity(2 * 1024 * 1024); // Reserve 2MB for the output
 
     image_management::encode_jpeg_with_exif(
         photo
@@ -146,15 +145,12 @@ async fn process_exposure(
 
     web_fs::write(format!("{:0>2}.jpeg", metadata.index), output).await?;
 
-    let mut output = vec![];
-    output.reserve(100 * 1024 * 1024); // Reserve 100MB for the output
+    let mut output = Vec::with_capacity(100 * 1024 * 1024); // Reserve 100MB for the output
 
     image_management::encode_tiff_with_exif(photo, Cursor::new(&mut output), &data)
         .expect("Failed to encode TIFF with EXIF");
 
     web_fs::write(format!("{:0>2}.tiff", metadata.index), output).await?;
-
-    log::info!("Exported to TIFF && JPEG successfully");
 
     Ok(())
 }
@@ -259,20 +255,11 @@ async fn process_images() -> Result<(), Error> {
         .map(|(_, entry)| {
             let data = controller::get_exposure_data(entry.index)?;
 
-            Ok(WorkerMessage(entry, data))
+            Ok(WorkerMessage::Process(entry, data))
         })
         .collect::<Result<Vec<_>, Error>>()?;
 
-    let pool = worker::Pool::new(tasks);
-
-    let concurrency = window()
-        .ok_or(Error::Macro(MacroError::NoWindow))?
-        .navigator()
-        .hardware_concurrency() as usize;
-
-    for _ in 1..concurrency {
-        pool.spawn_next()?;
-    }
+    let pool = worker::Pool::try_new(tasks)?;
 
     pool.join().await?;
 
@@ -438,8 +425,11 @@ fn setup_editor_from_files(files: &[web_sys::FileSystemFileEntry]) -> Result<(),
         web_fs::create_dir("originals").await.aquiesce();
     });
 
-    for ((file_id, mut meta), entry) in metadata.into_iter().zip(images) {
+    let (tx, rx) = async_channel::unbounded();
+    for ((file_id, mut meta), entry) in metadata.iter().cloned().zip(images) {
         let name = entry.name();
+
+        let tx = tx.clone();
 
         // We need to get the web_sys::File from the FileSystemFileEntry, so a closure is used,
         // then we create a FileReader to read the file, and add a callback to handle the file once
@@ -448,6 +438,7 @@ fn setup_editor_from_files(files: &[web_sys::FileSystemFileEntry]) -> Result<(),
             let reader = web_sys::FileReader::new()?;
 
             let r = reader.clone();
+
             let closure = Closure::once(move |_: web_sys::Event| {
                 let path = PathBuf::from("originals").join(name);
 
@@ -457,9 +448,7 @@ fn setup_editor_from_files(files: &[web_sys::FileSystemFileEntry]) -> Result<(),
                     controller::update(Update::FileMetadata(file_id, meta.clone()))
                         .await
                         .aquiesce();
-                    controller::update(Update::ExposureImage(meta.index))
-                        .await
-                        .aquiesce();
+                    tx.send(()).await.unwrap();
                 });
             });
             reader.set_onloadend(Some(closure.as_ref().unchecked_ref()));
@@ -473,6 +462,14 @@ fn setup_editor_from_files(files: &[web_sys::FileSystemFileEntry]) -> Result<(),
         entry.file_with_callback(file_load.as_ref().unchecked_ref());
         file_load.forget();
     }
+
+    wasm_bindgen_futures::spawn_local(async move {
+        while rx.sender_count() > 0 {
+            rx.recv().await.aquiesce();
+        }
+
+        generate_thumbnails().await.aquiesce();
+    });
 
     query_id!("photoselect").class_list().add_1("hidden")?;
     query_id!("editor").class_list().remove_1("hidden")?;
@@ -782,6 +779,15 @@ fn disable_click(selector: &web_sys::HtmlInputElement) -> JsResult {
     Ok(())
 }
 
+fn set_image(
+    models::WorkerCompressionAnswer(index, base64): models::WorkerCompressionAnswer,
+) -> Result<(), Error> {
+    query_id!(&format!("exposure-{index}-preview"))
+        .set_attribute("src", &format!("data:image/jpeg;base64, {base64}"))?;
+
+    Ok(())
+}
+
 fn setup_editor_from_data(contents: Data) -> Result<(), Error> {
     fill_roll_fields(&contents.roll)?;
     let selection = controller::get_selection()?;
@@ -799,16 +805,39 @@ fn setup_editor_from_data(contents: Data) -> Result<(), Error> {
 
     controller::overhaul_data(contents.clone())?;
 
-    wasm_bindgen_futures::spawn_local(async move {
-        for (index, _) in contents.exposures {
-            controller::update(Update::ExposureImage(index))
-                .await
-                .aquiesce();
-        }
-    });
-
     query_id!("photoselect").class_list().add_1("hidden")?;
     query_id!("editor").class_list().remove_1("hidden")?;
+
+    wasm_bindgen_futures::spawn_local(async move {
+        generate_thumbnails().await.aquiesce();
+    });
+
+    Ok(())
+}
+
+async fn generate_thumbnails() -> Result<(), Error> {
+    let data: Meta = serde_json::from_str(&storage!().get_existing("metadata")?)?;
+    let tasks = data
+        .into_values()
+        .map(models::WorkerMessage::GenerateThumbnail)
+        .collect();
+
+    let earlier = instant::SystemTime::now();
+    let pool = worker::Pool::try_new_with_callback(
+        tasks,
+        Box::new(|e: MessageEvent| {
+            set_image(serde_wasm_bindgen::from_value(e.data()).unwrap()).aquiesce()
+        }),
+    )?;
+
+    pool.join().await.aquiesce();
+
+    let now = instant::SystemTime::now()
+        .duration_since(earlier)
+        .unwrap_or_default()
+        .as_secs_f32();
+
+    log::debug!("Generated thumbnails in {now}s");
 
     Ok(())
 }

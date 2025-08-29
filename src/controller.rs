@@ -3,6 +3,7 @@ use crate::{
     macros::{MacroError, SessionStorageExt, query_id, storage},
     models::{
         Data, ExposureData, ExposureSpecificData, FileMetadata, MAX_EXPOSURES, Meta, Selection,
+        WorkerCompressionAnswer,
     },
 };
 use base64::prelude::*;
@@ -12,7 +13,7 @@ use std::{convert::TryInto, io::Cursor, path::PathBuf};
 use wasm_bindgen::{JsCast, JsValue};
 
 pub enum Update {
-    ExposureImage(u32),
+    ExposureImage(FileMetadata),
     SelectExposure(u32, bool, bool),
     SelectionClear,
     SelectionAll,
@@ -172,23 +173,15 @@ fn set_exposure_selection(index: u32, selected: bool) -> Result<(), Error> {
     Ok(())
 }
 
-async fn exposure_update_image(index: u32) -> Result<(), Error> {
-    let storage = storage!();
-    let data: Meta = serde_json::from_str(&storage.get_existing("metadata")?)?;
-
-    let (_, meta) = data
-        .into_iter()
-        .find(|(_, meta)| meta.index == index)
-        .ok_or(Error::MissingKey(format!(
-            "No image path for exposure {index}"
-        )))?;
-
+pub async fn compress_image(meta: FileMetadata) -> Result<WorkerCompressionAnswer, Error> {
     let file = meta.local_fs_path.ok_or(Error::MissingKey(format!(
-        "Missing local file for exposure {index}"
+        "Missing local file for exposure {}",
+        meta.index
     )))?;
 
     log::info!(
-        "Updating image for exposure {index} with file {}",
+        "Updating image for exposure {} with file {}",
+        meta.index,
         file.display()
     );
 
@@ -208,6 +201,12 @@ async fn exposure_update_image(index: u32) -> Result<(), Error> {
     JpegEncoder::new(&mut thumbnail).encode_image(&photo)?;
 
     let base64 = BASE64_STANDARD.encode(thumbnail);
+
+    Ok(WorkerCompressionAnswer(meta.index, base64))
+}
+
+async fn exposure_update_image(meta: FileMetadata) -> Result<(), Error> {
+    let WorkerCompressionAnswer(index, base64) = compress_image(meta).await?;
 
     query_id!(&format!("exposure-{index}-preview"))
         .set_attribute("src", &format!("data:image/jpeg;base64, {base64}"))?;
@@ -386,12 +385,12 @@ fn rotate_id(index: u32, orientation: Orientation) -> Result<(), Error> {
 
     let mut meta = m.clone();
     meta.orientation = meta.orientation.rotate(orientation);
-    data.insert(p.clone(), meta);
+    data.insert(p.clone(), meta.clone());
 
     storage.set_item("metadata", &serde_json::to_string(&data)?)?;
 
     wasm_bindgen_futures::spawn_local(async move {
-        exposure_update_image(index).await.aquiesce();
+        exposure_update_image(meta).await.aquiesce();
     });
 
     Ok(())

@@ -45,11 +45,9 @@ pub async fn print_dir_recursively<P: AsRef<Path>>(
 
 #[wasm_bindgen]
 pub async fn print_all() {
-    wasm_bindgen_futures::spawn_local(async move {
-        let mut fs_log = String::new();
-        print_dir_recursively("", 0, &mut fs_log).await.aquiesce();
-        log::info!("{}", fs_log);
-    });
+    let mut fs_log = String::new();
+    print_dir_recursively("", 0, &mut fs_log).await.aquiesce();
+    log::info!("{}", fs_log);
 }
 
 #[wasm_bindgen]

@@ -4,6 +4,7 @@ pub mod gps;
 pub mod image_management;
 pub mod macros;
 pub mod models;
+pub mod worker;
 
 use crate::{
     macros::{
@@ -11,8 +12,8 @@ use crate::{
         roll_input, roll_placeholder, storage,
     },
     models::{
-        Data, ExposureSpecificData, FileMetadata, MAX_EXPOSURES, Meta, Orientation, RollData,
-        TseParseError,
+        Data, FileMetadata, MAX_EXPOSURES, Meta, Orientation, RollData, TseParseError,
+        WorkerMessage,
     },
 };
 use controller::{UIExposureUpdate, UIRollUpdate, Update};
@@ -23,7 +24,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use wasm_bindgen::prelude::*;
-use web_sys::{Blob, WorkerOptions, WorkerType};
+use web_sys::{Blob, window};
 
 static ARCHIVE_SIZE: usize = 2 * 1024 * 1024 * 1024 - 1; // 2GiB
 
@@ -66,6 +67,8 @@ pub enum Error {
     Unsupported(#[from] image::error::UnsupportedError),
     #[error(transparent)]
     Format(#[from] std::fmt::Error),
+    #[error(transparent)]
+    AsyncRecv(#[from] async_channel::RecvError),
 }
 
 impl From<JsValue> for Error {
@@ -251,34 +254,29 @@ async fn process_images() -> Result<(), Error> {
         "roll".to_string()
     });
 
-    for (_, entry) in data {
-        let data = controller::get_exposure_data(entry.index)?;
+    let tasks = data
+        .into_iter()
+        .map(|(_, entry)| {
+            let data = controller::get_exposure_data(entry.index)?;
 
-        init_worker(&entry, &data)?;
-        //process_exposure(&entry).await?;
+            Ok(WorkerMessage(entry, data))
+        })
+        .collect::<Result<Vec<_>, Error>>()?;
+
+    let pool = worker::Pool::new(tasks);
+
+    let concurrency = window()
+        .ok_or(Error::Macro(MacroError::NoWindow))?
+        .navigator()
+        .hardware_concurrency() as usize;
+
+    for _ in 1..concurrency {
+        pool.spawn_next()?;
     }
 
+    pool.join().await?;
+
     export_dir(".", folder_name.into()).await
-}
-
-pub fn init_worker(meta: &models::FileMetadata, entry: &models::ExposureData) -> Result<(), Error> {
-    let options = WorkerOptions::new();
-    options.set_type(WorkerType::Module);
-    let worker = web_sys::Worker::new_with_options("/worker.js", &options)?;
-
-    let onmessage = wasm_bindgen::closure::Closure::<dyn Fn(_)>::new(move |e: web_sys::Event| {
-        log::info!("Received message: {:?}", e)
-    });
-
-    worker.set_onmessage(Some(&onmessage.as_ref().unchecked_ref()));
-    onmessage.forget();
-
-    worker.post_message(&serde_wasm_bindgen::to_value(&models::WorkerMessage(
-        meta.clone(),
-        entry.clone(),
-    ))?)?;
-
-    Ok(())
 }
 
 fn download_buffer(buffer: &[u8], filename: &str, mime_type: &str) -> Result<(), Error> {
@@ -834,18 +832,4 @@ pub fn setup() -> JsResult {
 #[wasm_bindgen]
 pub fn shared_memory() -> wasm_bindgen::JsValue {
     wasm_bindgen::memory()
-}
-
-#[wasm_bindgen]
-pub async fn ciao() {
-    log::info!("Ciao delle wasm");
-}
-
-#[wasm_bindgen]
-pub async fn handle_message(data: JsValue) -> Result<(), Error> {
-    let message: models::WorkerMessage = serde_wasm_bindgen::from_value(data)?;
-
-    process_exposure(&message.0, &message.1).await?;
-
-    Ok(())
 }

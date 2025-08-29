@@ -6,14 +6,11 @@ use crate::{
         WorkerCompressionAnswer,
     },
 };
-use base64::prelude::*;
 use chrono::NaiveDateTime;
-use image::{ImageReader, codecs::jpeg::JpegEncoder, imageops::FilterType};
-use std::{convert::TryInto, io::Cursor, path::PathBuf};
+use std::{convert::TryInto, path::PathBuf};
 use wasm_bindgen::{JsCast, JsValue};
 
 pub enum Update {
-    ExposureImage(FileMetadata),
     SelectExposure(u32, bool, bool),
     SelectionClear,
     SelectionAll,
@@ -173,40 +170,8 @@ fn set_exposure_selection(index: u32, selected: bool) -> Result<(), Error> {
     Ok(())
 }
 
-pub async fn compress_image(meta: FileMetadata) -> Result<WorkerCompressionAnswer, Error> {
-    let file = meta.local_fs_path.ok_or(Error::MissingKey(format!(
-        "Missing local file for exposure {}",
-        meta.index
-    )))?;
-
-    log::info!(
-        "Updating image for exposure {} with file {}",
-        meta.index,
-        file.display()
-    );
-
-    let photo = ImageReader::new(Cursor::new(web_fs::read(file).await?))
-        .with_guessed_format()?
-        .decode()?
-        .resize(512, 512, FilterType::Nearest);
-
-    let photo = match meta.orientation {
-        Orientation::Normal => photo,
-        Orientation::Rotated90 => photo.rotate90(),
-        Orientation::Rotated180 => photo.rotate180(),
-        Orientation::Rotated270 => photo.rotate270(),
-    };
-
-    let mut thumbnail = vec![];
-    JpegEncoder::new(&mut thumbnail).encode_image(&photo)?;
-
-    let base64 = BASE64_STANDARD.encode(thumbnail);
-
-    Ok(WorkerCompressionAnswer(meta.index, base64))
-}
-
 async fn exposure_update_image(meta: FileMetadata) -> Result<(), Error> {
-    let WorkerCompressionAnswer(index, base64) = compress_image(meta).await?;
+    let WorkerCompressionAnswer(index, base64) = crate::worker::compress_image(meta).await?;
 
     query_id!(&format!("exposure-{index}-preview"))
         .set_attribute("src", &format!("data:image/jpeg;base64, {base64}"))?;
@@ -401,11 +366,6 @@ pub async fn update(event: Update) -> Result<(), Error> {
         Update::Roll(d) => roll_update(d),
         Update::Exposure(i, d) => exposure_update(i, d),
         Update::ExposureField(i, d) => exposure_update_field(i, d),
-        Update::ExposureImage(i) => {
-            exposure_update_image(i).await.aquiesce();
-
-            Ok(())
-        }
         Update::SelectExposure(e, shift, ctrl) => toggle_selection(e, shift, ctrl),
         Update::SelectionClear | Update::SelectionAll | Update::SelectionInvert => {
             manage_selection(event)

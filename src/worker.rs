@@ -1,5 +1,10 @@
-use crate::{Aquiesce, Error, JsError, JsResult, models, process_exposure};
-use std::{cell::RefCell, rc::Rc};
+use crate::{
+    Aquiesce, Error, JsError, JsResult, image_management, models,
+    models::{ExposureData, FileMetadata, Orientation, WorkerCompressionAnswer},
+};
+use base64::prelude::*;
+use image::{ImageReader, codecs::jpeg::JpegEncoder, imageops::FilterType};
+use std::{cell::RefCell, io::Cursor, rc::Rc};
 use wasm_bindgen::prelude::*;
 use web_sys::{WorkerOptions, WorkerType};
 
@@ -12,7 +17,7 @@ pub async fn handle_message(data: JsValue) -> JsResult<JsValue> {
             .await
             .map(|_| JsValue::null())
             .js_error(),
-        models::WorkerMessage::GenerateThumbnail(meta) => crate::controller::compress_image(meta)
+        models::WorkerMessage::GenerateThumbnail(meta) => compress_image(meta)
             .await
             .and_then(|a| serde_wasm_bindgen::to_value(&a).map_err(|e| e.into()))
             .js_error(),
@@ -111,4 +116,73 @@ impl Pool {
             }
         }
     }
+}
+
+async fn process_exposure(metadata: &FileMetadata, data: &ExposureData) -> Result<(), Error> {
+    let photo_data = web_fs::read(
+        metadata
+            .local_fs_path
+            .clone()
+            .ok_or(Error::MissingKey("Missing local file".into()))?,
+    )
+    .await?;
+
+    let photo = image::ImageReader::new(Cursor::new(photo_data))
+        .with_guessed_format()?
+        .decode()?;
+
+    let photo = match metadata.orientation {
+        Orientation::Normal => photo,
+        Orientation::Rotated90 => photo.rotate90(),
+        Orientation::Rotated180 => photo.rotate180(),
+        Orientation::Rotated270 => photo.rotate270(),
+    };
+
+    let mut output = Vec::with_capacity(2 * 1024 * 1024); // Reserve 2MB for the output
+
+    image_management::encode_jpeg_with_exif(
+        photo
+            .clone()
+            .resize(2000, 2000, image::imageops::FilterType::Lanczos3),
+        Cursor::new(&mut output),
+        &data,
+    )
+    .expect("Global error");
+
+    web_fs::write(format!("{:0>2}.jpeg", metadata.index), output).await?;
+
+    let mut output = Vec::with_capacity(100 * 1024 * 1024); // Reserve 100MB for the output
+
+    image_management::encode_tiff_with_exif(photo, Cursor::new(&mut output), &data)
+        .expect("Failed to encode TIFF with EXIF");
+
+    web_fs::write(format!("{:0>2}.tiff", metadata.index), output).await?;
+
+    Ok(())
+}
+
+pub async fn compress_image(meta: FileMetadata) -> Result<WorkerCompressionAnswer, Error> {
+    let file = meta.local_fs_path.ok_or(Error::MissingKey(format!(
+        "Missing local file for exposure {}",
+        meta.index
+    )))?;
+
+    let photo = ImageReader::new(Cursor::new(web_fs::read(file).await?))
+        .with_guessed_format()?
+        .decode()?
+        .resize(512, 512, FilterType::Nearest);
+
+    let photo = match meta.orientation {
+        Orientation::Normal => photo,
+        Orientation::Rotated90 => photo.rotate90(),
+        Orientation::Rotated180 => photo.rotate180(),
+        Orientation::Rotated270 => photo.rotate270(),
+    };
+
+    let mut thumbnail = vec![];
+    JpegEncoder::new(&mut thumbnail).encode_image(&photo)?;
+
+    let base64 = BASE64_STANDARD.encode(thumbnail);
+
+    Ok(WorkerCompressionAnswer(meta.index, base64))
 }

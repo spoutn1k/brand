@@ -109,52 +109,6 @@ impl<E: std::error::Error> Aquiesce for Result<(), E> {
     }
 }
 
-async fn process_exposure(
-    metadata: &FileMetadata,
-    data: &models::ExposureData,
-) -> Result<(), Error> {
-    let photo_data = web_fs::read(
-        metadata
-            .local_fs_path
-            .clone()
-            .ok_or(Error::MissingKey("Missing local file".into()))?,
-    )
-    .await?;
-
-    let photo = image::ImageReader::new(Cursor::new(photo_data))
-        .with_guessed_format()?
-        .decode()?;
-
-    let photo = match metadata.orientation {
-        Orientation::Normal => photo,
-        Orientation::Rotated90 => photo.rotate90(),
-        Orientation::Rotated180 => photo.rotate180(),
-        Orientation::Rotated270 => photo.rotate270(),
-    };
-
-    let mut output = Vec::with_capacity(2 * 1024 * 1024); // Reserve 2MB for the output
-
-    image_management::encode_jpeg_with_exif(
-        photo
-            .clone()
-            .resize(2000, 2000, image::imageops::FilterType::Lanczos3),
-        Cursor::new(&mut output),
-        &data,
-    )
-    .expect("Global error");
-
-    web_fs::write(format!("{:0>2}.jpeg", metadata.index), output).await?;
-
-    let mut output = Vec::with_capacity(100 * 1024 * 1024); // Reserve 100MB for the output
-
-    image_management::encode_tiff_with_exif(photo, Cursor::new(&mut output), &data)
-        .expect("Failed to encode TIFF with EXIF");
-
-    web_fs::write(format!("{:0>2}.tiff", metadata.index), output).await?;
-
-    Ok(())
-}
-
 fn create_archive() -> tar::Builder<Cursor<Vec<u8>>> {
     tar::Builder::new(Cursor::new(Vec::<u8>::with_capacity(ARCHIVE_SIZE)))
 }

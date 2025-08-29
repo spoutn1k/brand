@@ -219,7 +219,7 @@ pub struct ExposureSpecificData {
     pub gps: Option<(f64, f64)>,
 }
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Default, Debug, Serialize, Deserialize)]
 pub struct ExposureData {
     pub author: Option<String>,
     pub make: Option<String>,
@@ -233,6 +233,9 @@ pub struct ExposureData {
     pub date: Option<NaiveDateTime>,
     pub gps: Option<(f64, f64)>,
 }
+
+#[derive(Serialize, Deserialize)]
+pub struct WorkerMessage(pub FileMetadata, pub ExposureData);
 
 impl ExposureData {
     pub fn complete(self, other: &Self) -> Self {

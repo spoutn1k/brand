@@ -7,20 +7,25 @@ pub mod models;
 
 use crate::{
     macros::{
-        body, el, event_target, query_id, query_selector, roll_input, roll_placeholder, storage,
-        MacroError, SessionStorageExt,
+        MacroError, SessionStorageExt, body, el, event_target, query_id, query_selector,
+        roll_input, roll_placeholder, storage,
     },
-    models::{Data, FileMetadata, Meta, Orientation, RollData, TseParseError, MAX_EXPOSURES},
+    models::{
+        Data, ExposureSpecificData, FileMetadata, MAX_EXPOSURES, Meta, Orientation, RollData,
+        TseParseError,
+    },
 };
 use controller::{UIExposureUpdate, UIRollUpdate, Update};
 use futures_lite::StreamExt;
 use image::ImageFormat;
 use std::{
-    io::Cursor,
+    io::{Cursor, Write},
     path::{Path, PathBuf},
 };
 use wasm_bindgen::prelude::*;
-use web_sys::Blob;
+use web_sys::{Blob, WorkerOptions, WorkerType};
+
+static ARCHIVE_SIZE: usize = 2 * 1024 * 1024 * 1024 - 1; // 2GiB
 
 pub type JsResult<T = ()> = Result<T, JsValue>;
 
@@ -40,9 +45,9 @@ pub enum Error {
     #[error("JS failure: {0}")]
     Js(String),
     #[error(transparent)]
-    ChannelSend(#[from] async_channel::SendError<ProcessStatus>),
-    #[error(transparent)]
     Serde(#[from] serde_json::Error),
+    #[error(transparent)]
+    SerdeWasm(#[from] serde_wasm_bindgen::Error),
     #[error(transparent)]
     Macro(#[from] MacroError),
     #[error("Missing key from storage: {0}")]
@@ -101,12 +106,10 @@ impl<E: std::error::Error> Aquiesce for Result<(), E> {
     }
 }
 
-pub enum ProcessStatus {
-    Success,
-    Error(String),
-}
-
-async fn process_exposure(metadata: &FileMetadata) -> Result<(), Error> {
+async fn process_exposure(
+    metadata: &FileMetadata,
+    data: &models::ExposureData,
+) -> Result<(), Error> {
     let photo_data = web_fs::read(
         metadata
             .local_fs_path
@@ -126,8 +129,6 @@ async fn process_exposure(metadata: &FileMetadata) -> Result<(), Error> {
         Orientation::Rotated270 => photo.rotate270(),
     };
 
-    let data = controller::get_exposure_data(metadata.index)?;
-
     let mut output = vec![];
     output.reserve(2 * 1024 * 1024); // Reserve 2MB for the output
 
@@ -143,7 +144,7 @@ async fn process_exposure(metadata: &FileMetadata) -> Result<(), Error> {
     web_fs::write(format!("{:0>2}.jpeg", metadata.index), output).await?;
 
     let mut output = vec![];
-    output.reserve(50 * 1024 * 1024); // Reserve 50MB for the output
+    output.reserve(100 * 1024 * 1024); // Reserve 100MB for the output
 
     image_management::encode_tiff_with_exif(photo, Cursor::new(&mut output), &data)
         .expect("Failed to encode TIFF with EXIF");
@@ -155,8 +156,6 @@ async fn process_exposure(metadata: &FileMetadata) -> Result<(), Error> {
     Ok(())
 }
 
-static ARCHIVE_SIZE: usize = 2 * 1024 * 1024 * 1024 - 1; // 2GiB
-
 fn create_archive() -> tar::Builder<Cursor<Vec<u8>>> {
     tar::Builder::new(Cursor::new(Vec::<u8>::with_capacity(ARCHIVE_SIZE)))
 }
@@ -165,7 +164,7 @@ trait AddFileExt {
     fn add_file<S: AsRef<Path>>(&mut self, file: &[u8], path: S) -> Result<(), Error>;
 }
 
-impl<W: std::io::Write> AddFileExt for tar::Builder<W> {
+impl<W: Write> AddFileExt for tar::Builder<W> {
     fn add_file<S: AsRef<Path>>(&mut self, file: &[u8], path: S) -> Result<(), Error> {
         let secs = instant::SystemTime::now()
             .duration_since(instant::SystemTime::UNIX_EPOCH)
@@ -253,10 +252,33 @@ async fn process_images() -> Result<(), Error> {
     });
 
     for (_, entry) in data {
-        process_exposure(&entry).await?;
+        let data = controller::get_exposure_data(entry.index)?;
+
+        init_worker(&entry, &data)?;
+        //process_exposure(&entry).await?;
     }
 
     export_dir(".", folder_name.into()).await
+}
+
+pub fn init_worker(meta: &models::FileMetadata, entry: &models::ExposureData) -> Result<(), Error> {
+    let options = WorkerOptions::new();
+    options.set_type(WorkerType::Module);
+    let worker = web_sys::Worker::new_with_options("/worker.js", &options)?;
+
+    let onmessage = wasm_bindgen::closure::Closure::<dyn Fn(_)>::new(move |e: web_sys::Event| {
+        log::info!("Received message: {:?}", e)
+    });
+
+    worker.set_onmessage(Some(&onmessage.as_ref().unchecked_ref()));
+    onmessage.forget();
+
+    worker.post_message(&serde_wasm_bindgen::to_value(&models::WorkerMessage(
+        meta.clone(),
+        entry.clone(),
+    ))?)?;
+
+    Ok(())
 }
 
 fn download_buffer(buffer: &[u8], filename: &str, mime_type: &str) -> Result<(), Error> {
@@ -793,6 +815,7 @@ fn setup_editor_from_data(contents: Data) -> Result<(), Error> {
     Ok(())
 }
 
+#[wasm_bindgen]
 pub fn setup() -> JsResult {
     let selector = query_id!("photoselect", web_sys::HtmlInputElement);
     disable_click(&selector)?;
@@ -811,4 +834,18 @@ pub fn setup() -> JsResult {
 #[wasm_bindgen]
 pub fn shared_memory() -> wasm_bindgen::JsValue {
     wasm_bindgen::memory()
+}
+
+#[wasm_bindgen]
+pub async fn ciao() {
+    log::info!("Ciao delle wasm");
+}
+
+#[wasm_bindgen]
+pub async fn handle_message(data: JsValue) -> Result<(), Error> {
+    let message: models::WorkerMessage = serde_wasm_bindgen::from_value(data)?;
+
+    process_exposure(&message.0, &message.1).await?;
+
+    Ok(())
 }

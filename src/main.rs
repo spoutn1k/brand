@@ -4,7 +4,5 @@ fn main() -> brand::JsResult {
     //    wasm_logger::init(wasm_logger::Config::default());
     std::panic::set_hook(Box::new(console_error_panic_hook::hook));
 
-    brand::setup()?;
-
     Ok(())
 }

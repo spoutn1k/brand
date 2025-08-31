@@ -14,6 +14,8 @@ pub enum MacroError {
     SelectorFailed(String),
     #[error("No target for event !")]
     NoTarget,
+    #[error("JS error: {0:?}")]
+    JsError(JsValue),
 }
 
 impl From<MacroError> for JsValue {
@@ -22,23 +24,30 @@ impl From<MacroError> for JsValue {
     }
 }
 
+macro_rules! document {
+    () => {{
+        web_sys::window()
+            .ok_or(MacroError::NoWindow)
+            .and_then(|w| w.document().ok_or(MacroError::NoDocument))
+    }};
+}
+
 macro_rules! body {
     () => {{
         web_sys::window()
-            .ok_or(MacroError::NoWindow)?
-            .document()
-            .ok_or(MacroError::NoDocument)?
-            .body()
-            .ok_or(MacroError::NoDocument)?
+            .ok_or(MacroError::NoWindow)
+            .and_then(|w| w.document().ok_or(MacroError::NoDocument))
+            .and_then(|d| d.body().ok_or(MacroError::NoDocument))
     }};
 }
 
 macro_rules! storage {
     () => {{
-        web_sys::window()
-            .ok_or(MacroError::NoWindow)?
-            .session_storage()?
-            .ok_or(MacroError::NoStorage)?
+        web_sys::window().ok_or(MacroError::NoWindow).and_then(|w| {
+            w.session_storage()
+                .map_err(MacroError::JsError)
+                .and_then(|s| s.ok_or(MacroError::NoStorage))
+        })
     }};
 }
 
@@ -54,15 +63,16 @@ impl SessionStorageExt for web_sys::Storage {
 }
 
 macro_rules! query_id {
-    ($id:expr, $type:ty) => {{ query_id!($id).unchecked_into::<$type>() }};
+    ($id:expr, $type:ty) => {{ query_id!($id).map(|e| e.unchecked_into::<$type>()) }};
 
     ($id:expr) => {{
         web_sys::window()
-            .ok_or(MacroError::NoWindow)?
-            .document()
-            .ok_or(MacroError::NoDocument)?
-            .get_element_by_id($id)
-            .ok_or(MacroError::NoElementId($id.to_string()))?
+            .ok_or(MacroError::NoWindow)
+            .and_then(|w| w.document().ok_or(MacroError::NoDocument))
+            .and_then(|d| {
+                d.get_element_by_id($id)
+                    .ok_or(MacroError::NoElementId($id.to_string()))
+            })
     }};
 }
 
@@ -81,27 +91,23 @@ macro_rules! query_selector {
 
 macro_rules! roll_input {
     ($field:ident, $data:expr) => {{
-        let tmp = query_id!(
+        query_id!(
             &format!("roll-{}-input", stringify!($field)),
             web_sys::HtmlInputElement
-        );
-
-        tmp.set_value($data.$field.as_ref().unwrap_or(&String::new()));
-
-        tmp
+        )
+        .inspect(|e| e.set_value($data.$field.as_ref().unwrap_or(&String::new())))
     }};
 }
 
 macro_rules! roll_placeholder {
     ($field:ident, $placeholder:expr) => {{
-        let tmp = query_id!(
+        query_id!(
             &format!("roll-{}-input", stringify!($field)),
             web_sys::HtmlInputElement
-        );
-
-        tmp.set_attribute("placeholder", $placeholder)?;
-
-        tmp
+        )
+        .inspect(|e| {
+            let _ = e.set_attribute("placeholder", $placeholder);
+        })
     }};
 }
 
@@ -130,6 +136,7 @@ macro_rules! event_target {
 }
 
 pub(crate) use body;
+pub(crate) use document;
 pub(crate) use el;
 pub(crate) use event_target;
 pub(crate) use query_id;

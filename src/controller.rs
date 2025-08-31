@@ -133,7 +133,7 @@ impl TryInto<RollUpdate> for UIRollUpdate {
 fn exposure_update_field(index: u32, change: UIExposureUpdate) -> Result<(), Error> {
     let validated: ExposureUpdate = change.clone().try_into()?;
 
-    let storage = storage!();
+    let storage = storage!()?;
     let mut data: Data = serde_json::from_str(&storage.get_existing("data")?)?;
 
     let selection: Selection = get_selection()?;
@@ -160,16 +160,16 @@ fn set_exposure_selection(index: u32, selected: bool) -> Result<(), Error> {
     query_id!(
         &format!("exposure-input-select-{index}"),
         web_sys::HtmlInputElement
-    )
+    )?
     .set_checked(selected);
 
-    let classes = query_id!(&format!("exposure-{index}")).class_list();
+    let classes = query_id!(&format!("exposure-{index}"))?.class_list();
     if selected {
-        query_id!(&format!("exposure-{index}-preview")).remove_attribute("hidden")?;
+        query_id!(&format!("exposure-{index}-preview"))?.remove_attribute("hidden")?;
 
         classes.add_1("selected")?;
     } else {
-        query_id!(&format!("exposure-{index}-preview")).set_attribute("hidden", "true")?;
+        query_id!(&format!("exposure-{index}-preview"))?.set_attribute("hidden", "true")?;
 
         classes.remove_1("selected")?;
     }
@@ -180,7 +180,7 @@ fn set_exposure_selection(index: u32, selected: bool) -> Result<(), Error> {
 async fn exposure_update_image(meta: FileMetadata) -> Result<(), Error> {
     let WorkerCompressionAnswer(index, base64) = crate::worker::compress_image(meta).await?;
 
-    query_id!(&format!("exposure-{index}-preview"))
+    query_id!(&format!("exposure-{index}-preview"))?
         .set_attribute("src", &format!("data:image/jpeg;base64, {base64}"))?;
 
     Ok(())
@@ -189,7 +189,7 @@ async fn exposure_update_image(meta: FileMetadata) -> Result<(), Error> {
 fn roll_update(change: UIRollUpdate) -> Result<(), Error> {
     let validated: RollUpdate = change.try_into()?;
 
-    let storage = storage!();
+    let storage = storage!()?;
     let mut data: Data = serde_json::from_str(&storage.get_existing("data")?)?;
 
     data.roll.update(validated);
@@ -243,7 +243,7 @@ pub fn overhaul_data(contents: Data) -> Result<(), Error> {
 }
 
 pub fn generate_folder_name() -> Result<String, Error> {
-    let data: Data = serde_json::from_str(&storage!().get_existing("data")?)?;
+    let data: Data = serde_json::from_str(&storage!()?.get_existing("data")?)?;
 
     let min = data
         .exposures
@@ -281,12 +281,12 @@ pub fn generate_folder_name() -> Result<String, Error> {
 }
 
 pub fn get_selection() -> Result<Selection, Error> {
-    serde_json::from_str(&storage!().get_item("selected")?.unwrap_or_default())
+    serde_json::from_str(&storage!()?.get_item("selected")?.unwrap_or_default())
         .or_else(|_| Ok(Selection::default()))
 }
 
 pub fn get_exposure_data(index: u32) -> Result<ExposureData, Error> {
-    let storage = storage!();
+    let storage = storage!()?;
     let data: Data = serde_json::from_str(&storage.get_existing("data")?)?;
 
     Ok(data.spread_shots().generate(index))
@@ -311,7 +311,7 @@ fn toggle_selection(index: u32, shift: bool, ctrl: bool) -> Result<(), Error> {
         set_exposure_selection(exposure, choices.contains(&exposure)).ok();
     }
 
-    storage!().set_item("selected", &serde_json::to_string(&selection)?)?;
+    storage!()?.set_item("selected", &serde_json::to_string(&selection)?)?;
 
     Ok(())
 }
@@ -331,7 +331,7 @@ fn manage_selection(operation: Update) -> Result<(), Error> {
         set_exposure_selection(exposure, choices.contains(&exposure)).ok();
     }
 
-    storage!().set_item("selected", &serde_json::to_string(&selection)?)?;
+    storage!()?.set_item("selected", &serde_json::to_string(&selection)?)?;
 
     Ok(())
 }
@@ -347,7 +347,7 @@ fn rotate_left_selection() -> Result<(), Error> {
 }
 
 fn rotate_id(index: u32, orientation: Orientation) -> Result<(), Error> {
-    let storage = storage!();
+    let storage = storage!()?;
     let mut data: Meta = serde_json::from_str(&storage.get_existing("metadata")?)?;
 
     let (p, m) = data
@@ -378,7 +378,7 @@ pub async fn update(event: Update) -> Result<(), Error> {
             manage_selection(event)
         }
         Update::FileMetadata(path, metadata) => {
-            let storage = storage!();
+            let storage = storage!()?;
             let mut data: Meta = serde_json::from_str(&storage.get_existing("metadata")?)?;
 
             data.insert(path, metadata);
@@ -402,7 +402,7 @@ fn update_exposure_ui(index: u32, data: &UIExposureUpdate) -> JsResult {
         UIExposureUpdate::Gps(value) => (&format!("exposure-input-gps-{index}"), value),
     };
 
-    query_id!(id, web_sys::HtmlInputElement).set_value(contents);
+    query_id!(id, web_sys::HtmlInputElement)?.set_value(contents);
     Ok(())
 }
 
@@ -415,7 +415,7 @@ fn update_roll_ui(data: &UIRollUpdate) -> JsResult {
         UIRollUpdate::Film(value) => ("roll-description-input", value),
     };
 
-    query_id!(id, web_sys::HtmlInputElement).set_value(contents);
+    query_id!(id, web_sys::HtmlInputElement)?.set_value(contents);
 
     Ok(())
 }
@@ -439,8 +439,8 @@ pub fn sender() -> Receiver<Progress> {
 }
 
 pub async fn handle_progress() -> Result<(), Error> {
-    let thumbnails = query_id!("thumbnails");
-    let processing = query_id!("processing");
+    let thumbnails = query_id!("thumbnails")?;
+    let processing = query_id!("processing")?;
 
     while let Ok(data) = sender().recv().await {
         match data {

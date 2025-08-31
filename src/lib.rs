@@ -8,7 +8,7 @@ pub mod worker;
 
 use crate::{
     macros::{
-        MacroError, SessionStorageExt, body, el, event_target, query_id, query_selector,
+        MacroError, SessionStorageExt, body, document, el, event_target, query_id, query_selector,
         roll_input, roll_placeholder, storage,
     },
     models::{
@@ -22,13 +22,30 @@ use image::ImageFormat;
 use std::{
     io::{Cursor, Write},
     path::{Path, PathBuf},
+    thread::AccessError,
 };
 use wasm_bindgen::prelude::*;
-use web_sys::{Blob, MessageEvent};
+use web_sys::{Blob, KeyEvent, KeyboardEvent, MessageEvent};
 
 static ARCHIVE_SIZE: usize = 2 * 1024 * 1024 * 1024 - 1; // 2GiB
 
 pub type JsResult<T = ()> = Result<T, JsValue>;
+
+thread_local! {
+static KEY_HANDLER: Closure<dyn Fn(KeyboardEvent)> =
+    Closure::new(|event: KeyboardEvent| handle_keypress(event.key_code()).aquiesce());
+}
+
+fn handle_keypress(key_code: u32) -> Result<(), Error> {
+    match key_code {
+        KeyEvent::DOM_VK_ESCAPE => wasm_bindgen_futures::spawn_local(async move {
+            controller::update(Update::SelectionClear).await.aquiesce()
+        }),
+        _ => (),
+    };
+
+    Ok(())
+}
 
 #[wasm_bindgen]
 extern "C" {
@@ -68,6 +85,8 @@ pub enum Error {
     AsyncRecv(#[from] async_channel::RecvError),
     #[error(transparent)]
     ProgressSend(#[from] async_channel::SendError<controller::Progress>),
+    #[error(transparent)]
+    ThreadVariable(#[from] AccessError),
 }
 
 impl From<JsValue> for Error {
@@ -140,7 +159,7 @@ impl<W: Write> AddFileExt for tar::Builder<W> {
 async fn export_dir<P: AsRef<Path>>(path: P, folder_name: PathBuf) -> Result<(), Error> {
     let mut archive_builder = create_archive();
 
-    let data: Data = serde_json::from_str(&storage!().get_existing("data")?)?;
+    let data: Data = serde_json::from_str(&storage!()?.get_existing("data")?)?;
     let file = data.to_string();
 
     archive_builder.add_file(file.as_bytes(), folder_name.clone().join("index.tse"))?;
@@ -193,7 +212,7 @@ async fn export_dir<P: AsRef<Path>>(path: P, folder_name: PathBuf) -> Result<(),
 
 async fn process_images() -> Result<(), Error> {
     let data: Meta = serde_json::from_str(
-        &storage!()
+        &storage!()?
             .get_item("metadata")?
             .ok_or(Error::MissingKey("metadata".into()))?,
     )?;
@@ -254,9 +273,9 @@ fn download_buffer(buffer: &[u8], filename: &str, mime_type: &str) -> Result<(),
     element.set_attribute("download", filename)?;
     element.style().set_property("display", "none")?;
 
-    body!().append_with_node_1(&element)?;
+    body!()?.append_with_node_1(&element)?;
     element.click();
-    body!().remove_child(&element)?;
+    body!()?.remove_child(&element)?;
 
     web_sys::Url::revoke_object_url(&url)?;
 
@@ -303,7 +322,7 @@ async fn import_tse(entry: &web_sys::FileSystemFileEntry) -> Result<(), Error> {
             let raw = r.result()?.as_string().unwrap_or_default();
             let data = models::read_tse(Cursor::new(raw))?;
 
-            storage!().set_item("data", &serde_json::to_string(&data).unwrap())?;
+            storage!()?.set_item("data", &serde_json::to_string(&data).unwrap())?;
             controller::overhaul_data(data).js_error()
         });
 
@@ -368,7 +387,7 @@ async fn setup_editor_from_files(files: &[web_sys::FileSystemFileEntry]) -> Resu
         images.push(i);
     }
 
-    storage!().set_item(
+    storage!()?.set_item(
         "metadata",
         &serde_json::to_string(&metadata.iter().cloned().collect::<Meta>())?,
     )?;
@@ -377,7 +396,7 @@ async fn setup_editor_from_files(files: &[web_sys::FileSystemFileEntry]) -> Resu
         create_row(index, false)?;
     }
 
-    storage!().set_item(
+    storage!()?.set_item(
         "data",
         &serde_json::to_string(&Data::with_count(images.len() as u32))?,
     )?;
@@ -445,8 +464,8 @@ async fn setup_editor_from_files(files: &[web_sys::FileSystemFileEntry]) -> Resu
 
     log::debug!("Imported files in {now}s");
 
-    query_id!("photoselect").class_list().add_1("hidden")?;
-    query_id!("editor").class_list().remove_1("hidden")?;
+    query_id!("photoselect")?.class_list().add_1("hidden")?;
+    query_id!("editor")?.class_list().remove_1("hidden")?;
 
     generate_thumbnails().await?;
 
@@ -506,10 +525,10 @@ fn set_exposure_handler(
 }
 
 fn reset_editor() -> JsResult {
-    query_id!("exposures").set_inner_html("");
-    query_id!("preview").set_inner_html("");
+    query_id!("exposures")?.set_inner_html("");
+    query_id!("preview")?.set_inner_html("");
 
-    let selector = query_id!("photoselect", web_sys::HtmlInputElement);
+    let selector = query_id!("photoselect", web_sys::HtmlInputElement)?;
     selector.class_list().remove_1("hidden")?;
     selector.set_value("");
 
@@ -517,26 +536,26 @@ fn reset_editor() -> JsResult {
         fs::clear_dir("").await.aquiesce();
     });
 
-    query_id!("editor").class_list().add_1("hidden")?;
-    storage!().clear()
+    query_id!("editor")?.class_list().add_1("hidden")?;
+    storage!()?.clear()
 }
 
 fn fill_roll_fields(data: &RollData) -> JsResult {
-    roll_input!(author, data);
-    roll_input!(make, data);
-    roll_input!(model, data);
-    roll_input!(iso, data);
-    roll_input!(description, data);
+    roll_input!(author, data)?;
+    roll_input!(make, data)?;
+    roll_input!(model, data)?;
+    roll_input!(iso, data)?;
+    roll_input!(description, data)?;
 
     Ok(())
 }
 
 fn setup_roll_fields() -> JsResult {
-    let author_input = roll_placeholder!(author, "Author");
-    let make_input = roll_placeholder!(make, "Camera Brand");
-    let model_input = roll_placeholder!(model, "Camera Model");
-    let iso_input = roll_placeholder!(iso, "ISO");
-    let description_input = roll_placeholder!(description, "Film type");
+    let author_input = roll_placeholder!(author, "Author")?;
+    let make_input = roll_placeholder!(make, "Camera Brand")?;
+    let model_input = roll_placeholder!(model, "Camera Model")?;
+    let iso_input = roll_placeholder!(iso, "ISO")?;
+    let description_input = roll_placeholder!(description, "Film type")?;
 
     set_roll_handler(UIRollUpdate::Author, &author_input)?;
     set_roll_handler(UIRollUpdate::Make, &make_input)?;
@@ -549,7 +568,7 @@ fn setup_roll_fields() -> JsResult {
             controller::update(Update::RotateLeft).await.aquiesce()
         });
     });
-    query_id!("rotate-left")
+    query_id!("rotate-left")?
         .add_event_listener_with_callback("click", rotate_left.as_ref().unchecked_ref())?;
     rotate_left.forget();
 
@@ -557,7 +576,7 @@ fn setup_roll_fields() -> JsResult {
         Closure::<dyn Fn(_) -> JsResult>::new(move |_: web_sys::Event| -> JsResult {
             reset_editor()
         });
-    query_id!("editor-reset")
+    query_id!("editor-reset")?
         .add_event_listener_with_callback("click", reset_editor.as_ref().unchecked_ref())?;
     reset_editor.forget();
 
@@ -566,7 +585,7 @@ fn setup_roll_fields() -> JsResult {
             controller::update(Update::SelectionClear).await.aquiesce()
         });
     });
-    query_id!("editor-selection-clear")
+    query_id!("editor-selection-clear")?
         .add_event_listener_with_callback("click", selection_clear.as_ref().unchecked_ref())?;
     selection_clear.forget();
 
@@ -575,7 +594,7 @@ fn setup_roll_fields() -> JsResult {
             controller::update(Update::SelectionAll).await.aquiesce()
         });
     });
-    query_id!("editor-selection-glob")
+    query_id!("editor-selection-glob")?
         .add_event_listener_with_callback("click", selection_glob.as_ref().unchecked_ref())?;
     selection_glob.forget();
 
@@ -584,7 +603,7 @@ fn setup_roll_fields() -> JsResult {
             controller::update(Update::SelectionInvert).await.aquiesce()
         });
     });
-    query_id!("editor-selection-invert")
+    query_id!("editor-selection-invert")?
         .add_event_listener_with_callback("click", selection_invert.as_ref().unchecked_ref())?;
     selection_invert.forget();
 
@@ -594,7 +613,7 @@ fn setup_roll_fields() -> JsResult {
         });
     });
 
-    query_id!("download")
+    query_id!("download")?
         .add_event_listener_with_callback("click", download_tse.as_ref().unchecked_ref())?;
     download_tse.forget();
 
@@ -673,7 +692,7 @@ fn create_row(index: u32, selected: bool) -> Result<(), Error> {
 
     let coords_select =
         Closure::<dyn Fn(_) -> JsResult>::new(move |_: web_sys::Event| -> JsResult {
-            let data: Data = serde_json::from_str(&storage!().clone().get_existing("data")?)
+            let data: Data = serde_json::from_str(&storage!()?.clone().get_existing("data")?)
                 .map_err(|e| e.to_string())?;
 
             if let Some((lat, lon)) = data
@@ -707,7 +726,7 @@ fn create_row(index: u32, selected: bool) -> Result<(), Error> {
     let image = el!("img");
     image.set_id(&format!("exposure-{index}-preview"));
     image.set_attribute("alt", &format!("E{}", index))?;
-    query_id!("preview").append_with_node_1(&image)?;
+    query_id!("preview")?.append_with_node_1(&image)?;
 
     Ok(())
 }
@@ -761,7 +780,7 @@ fn set_image(data: JsValue) -> Result<(), Error> {
     let models::WorkerCompressionAnswer(index, base64): models::WorkerCompressionAnswer =
         serde_wasm_bindgen::from_value(data)?;
 
-    query_id!(&format!("exposure-{index}-preview"))
+    query_id!(&format!("exposure-{index}-preview"))?
         .set_attribute("src", &format!("data:image/jpeg;base64, {base64}"))?;
 
     wasm_bindgen_futures::spawn_local(async move {
@@ -778,7 +797,7 @@ async fn setup_editor_from_data(contents: Data) -> Result<(), Error> {
     fill_roll_fields(&contents.roll)?;
     let selection = controller::get_selection()?;
 
-    storage!().set_item("data", &serde_json::to_string(&contents)?)?;
+    storage!()?.set_item("data", &serde_json::to_string(&contents)?)?;
     let exposures = *contents.exposures.keys().max().unwrap_or(&MAX_EXPOSURES);
     for index in 1..=exposures {
         create_row(index, selection.contains(index)).aquiesce();
@@ -786,8 +805,8 @@ async fn setup_editor_from_data(contents: Data) -> Result<(), Error> {
 
     controller::overhaul_data(contents.clone())?;
 
-    query_id!("photoselect").class_list().add_1("hidden")?;
-    query_id!("editor").class_list().remove_1("hidden")?;
+    query_id!("photoselect")?.class_list().add_1("hidden")?;
+    query_id!("editor")?.class_list().remove_1("hidden")?;
 
     generate_thumbnails().await?;
 
@@ -795,7 +814,7 @@ async fn setup_editor_from_data(contents: Data) -> Result<(), Error> {
 }
 
 async fn generate_thumbnails() -> Result<(), Error> {
-    let data: Meta = serde_json::from_str(&storage!().get_existing("metadata")?)?;
+    let data: Meta = serde_json::from_str(&storage!()?.get_existing("metadata")?)?;
     let tasks: Vec<_> = data
         .into_values()
         .map(models::WorkerMessage::GenerateThumbnail)
@@ -832,18 +851,26 @@ async fn generate_thumbnails() -> Result<(), Error> {
 
 #[wasm_bindgen]
 pub fn setup() -> JsResult {
-    let selector = query_id!("photoselect", web_sys::HtmlInputElement);
+    let selector = query_id!("photoselect", web_sys::HtmlInputElement)?;
     disable_click(&selector)?;
     setup_drag_drop(&selector)?;
     setup_roll_fields()?;
 
-    let storage = storage!();
+    let storage = storage!()?;
     if let Some(data) = storage.get_item("data")? {
         let data: Data = serde_json::from_str(&data).map_err(|e| format!("{e}"))?;
         wasm_bindgen_futures::spawn_local(async move {
             setup_editor_from_data(data).await.aquiesce();
         });
     }
+
+    // Listen for keypresses and handle them accordingly
+    KEY_HANDLER
+        .try_with(|handler| {
+            document!()?
+                .add_event_listener_with_callback("keydown", handler.as_ref().unchecked_ref())
+        })
+        .map_err(Error::from)??;
 
     wasm_bindgen_futures::spawn_local(
         async move { controller::handle_progress().await.aquiesce() },

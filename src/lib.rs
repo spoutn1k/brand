@@ -34,9 +34,6 @@ pub type JsResult<T = ()> = Result<T, JsValue>;
 extern "C" {
     fn set_marker(x: f64, y: f64);
     fn prompt_coords(i: u32);
-    fn encodeURIComponent(i: String) -> String;
-    #[wasm_bindgen(js_namespace = console)]
-    pub fn log(s: &str);
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -129,10 +126,10 @@ impl<W: Write> AddFileExt for tar::Builder<W> {
         header.set_mode(0o644);
         header.set_cksum();
         header.set_mtime(secs);
-        header.as_gnu_mut().map(|h| {
+        if let Some(h) = header.as_gnu_mut() {
             h.set_atime(secs);
             h.set_ctime(secs);
-        });
+        }
 
         Ok(self.append_data(&mut header, path.as_ref(), Cursor::new(file))?)
     }
@@ -205,11 +202,11 @@ async fn process_images() -> Result<(), Error> {
     });
 
     let tasks = data
-        .into_iter()
-        .map(|(_, entry)| {
+        .into_values()
+        .map(|entry| {
             let data = controller::get_exposure_data(entry.index)?;
 
-            Ok(WorkerMessage::Process(entry, data))
+            Ok(WorkerMessage::Process(entry, Box::new(data)))
         })
         .collect::<Result<Vec<_>, Error>>()?;
 
@@ -221,7 +218,7 @@ async fn process_images() -> Result<(), Error> {
 }
 
 fn download_buffer(buffer: &[u8], filename: &str, mime_type: &str) -> Result<(), Error> {
-    let bytes = js_sys::Uint8Array::new(&unsafe { js_sys::Uint8Array::view(&buffer) }.into());
+    let bytes = js_sys::Uint8Array::new(&unsafe { js_sys::Uint8Array::view(buffer) }.into());
 
     let array = js_sys::Array::new();
     array.push(&bytes.buffer());
@@ -303,11 +300,11 @@ async fn import_tse(entry: &web_sys::FileSystemFileEntry) -> Result<(), Error> {
     Ok(())
 }
 
-fn setup_editor_from_files(files: &[web_sys::FileSystemFileEntry]) -> Result<(), Error> {
+async fn setup_editor_from_files(files: &[web_sys::FileSystemFileEntry]) -> Result<(), Error> {
     fill_roll_fields(&RollData::default())?;
 
     let (images, other): (Vec<_>, Vec<_>) = files
-        .into_iter()
+        .iter()
         .partition(|f| matches!(FileKind::from(PathBuf::from(&f.name())), FileKind::Image(_)));
 
     let metadata = images
@@ -370,14 +367,11 @@ fn setup_editor_from_files(files: &[web_sys::FileSystemFileEntry]) -> Result<(),
         .find(|f| matches!(FileKind::from(PathBuf::from(&f.name())), FileKind::Tse))
         .cloned()
     {
-        wasm_bindgen_futures::spawn_local(async move {
-            import_tse(&file).await.aquiesce();
-        });
+        import_tse(&file).await?
     }
 
-    wasm_bindgen_futures::spawn_local(async move {
-        web_fs::create_dir("originals").await.aquiesce();
-    });
+    web_fs::create_dir("originals").await?;
+    let earlier = instant::SystemTime::now();
 
     let (tx, rx) = async_channel::unbounded();
     for ((file_id, mut meta), entry) in metadata.iter().cloned().zip(images) {
@@ -417,16 +411,24 @@ fn setup_editor_from_files(files: &[web_sys::FileSystemFileEntry]) -> Result<(),
         file_load.forget();
     }
 
-    wasm_bindgen_futures::spawn_local(async move {
-        while rx.sender_count() > 0 {
-            rx.recv().await.aquiesce();
-        }
+    drop(tx);
 
-        generate_thumbnails().await.aquiesce();
-    });
+    while rx.sender_count() > 0 {
+        log::info!("Sender count: {:?}", rx.sender_count());
+        rx.recv().await?;
+    }
+
+    let now = instant::SystemTime::now()
+        .duration_since(earlier)
+        .unwrap_or_default()
+        .as_secs_f32();
+
+    log::debug!("Imported files in {now}s");
 
     query_id!("photoselect").class_list().add_1("hidden")?;
     query_id!("editor").class_list().remove_1("hidden")?;
+
+    generate_thumbnails().await?;
 
     Ok(())
 }
@@ -713,7 +715,9 @@ fn setup_drag_drop(photo_selector: &web_sys::HtmlInputElement) -> JsResult {
                 .map(|f| f.dyn_into::<web_sys::FileSystemFileEntry>())
                 .collect::<Result<Vec<_>, _>>()?;
 
-            setup_editor_from_files(&files)?;
+            wasm_bindgen_futures::spawn_local(async move {
+                setup_editor_from_files(&files).await.aquiesce();
+            });
 
             Ok(())
         });
@@ -742,17 +746,12 @@ fn set_image(
     Ok(())
 }
 
-fn setup_editor_from_data(contents: Data) -> Result<(), Error> {
+async fn setup_editor_from_data(contents: Data) -> Result<(), Error> {
     fill_roll_fields(&contents.roll)?;
     let selection = controller::get_selection()?;
 
     storage!().set_item("data", &serde_json::to_string(&contents)?)?;
-    let exposures = contents
-        .exposures
-        .keys()
-        .max()
-        .unwrap_or(&MAX_EXPOSURES)
-        .clone();
+    let exposures = *contents.exposures.keys().max().unwrap_or(&MAX_EXPOSURES);
     for index in 1..=exposures {
         create_row(index, selection.contains(index)).aquiesce();
     }
@@ -762,9 +761,7 @@ fn setup_editor_from_data(contents: Data) -> Result<(), Error> {
     query_id!("photoselect").class_list().add_1("hidden")?;
     query_id!("editor").class_list().remove_1("hidden")?;
 
-    wasm_bindgen_futures::spawn_local(async move {
-        generate_thumbnails().await.aquiesce();
-    });
+    generate_thumbnails().await?;
 
     Ok(())
 }
@@ -806,7 +803,9 @@ pub fn setup() -> JsResult {
     let storage = storage!();
     if let Some(data) = storage.get_item("data")? {
         let data: Data = serde_json::from_str(&data).map_err(|e| format!("{e}"))?;
-        setup_editor_from_data(data).js_error()?;
+        wasm_bindgen_futures::spawn_local(async move {
+            setup_editor_from_data(data).await.aquiesce();
+        });
     }
 
     Ok(())

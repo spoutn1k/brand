@@ -401,11 +401,11 @@ fn update_exposure_ui(index: u32, data: &UIExposureUpdate) -> JsResult {
 
 fn update_roll_ui(data: &UIRollUpdate) -> JsResult {
     let (id, contents) = match data {
-        UIRollUpdate::Author(value) => (&format!("roll-author-input"), value),
-        UIRollUpdate::Make(value) => (&format!("roll-make-input"), value),
-        UIRollUpdate::Model(value) => (&format!("roll-model-input"), value),
-        UIRollUpdate::Iso(value) => (&format!("roll-iso-input"), value),
-        UIRollUpdate::Film(value) => (&format!("roll-description-input"), value),
+        UIRollUpdate::Author(value) => ("roll-author-input", value),
+        UIRollUpdate::Make(value) => ("roll-make-input", value),
+        UIRollUpdate::Model(value) => ("roll-model-input", value),
+        UIRollUpdate::Iso(value) => ("roll-iso-input", value),
+        UIRollUpdate::Film(value) => ("roll-description-input", value),
     };
 
     query_id!(id, web_sys::HtmlInputElement).set_value(contents);

@@ -88,7 +88,6 @@ fn exposure_tsv(input: &mut &str) -> ModalResult<ExposureSpecificData> {
             .context(expected("Date")),
         _: tab,
         gps: opt(separated_pair(float, ", ", float)),
-        ..Default::default()
     }}
     .parse_next(input)
 }
@@ -103,9 +102,9 @@ pub fn read_tse<R: std::io::BufRead>(buffer: R) -> Result<Data, Error> {
 
     let mut index = 1;
     while let Some(line) = reader.next().transpose()? {
-        if line.starts_with('#') {
-            let space = line.find(' ').unwrap();
-            let (marker, value) = line[1..].split_at(space - 1);
+        if let Some(stripped) = line.strip_prefix('#') {
+            let space = stripped.find(' ').unwrap();
+            let (marker, value) = stripped.split_at(space);
 
             match marker {
                 "Make" => roll.make = Some(value.trim().into()),
@@ -123,7 +122,7 @@ pub fn read_tse<R: std::io::BufRead>(buffer: R) -> Result<Data, Error> {
             continue;
         }
 
-        let exposure = exposure_tsv(&mut line.as_str()).map_err(|_| TseParseError::default())?;
+        let exposure = exposure_tsv(&mut line.as_str()).map_err(|_| TseParseError)?;
         exposures.insert(index, exposure);
         index += 1;
     }
@@ -140,7 +139,6 @@ pub struct Data {
 impl Data {
     pub fn with_count(count: u32) -> Self {
         let exposures = (1..=count)
-            .into_iter()
             .map(|index| (index, ExposureSpecificData::default()))
             .collect();
 
@@ -236,7 +234,7 @@ pub struct ExposureData {
 
 #[derive(Serialize, Deserialize)]
 pub enum WorkerMessage {
-    Process(FileMetadata, ExposureData),
+    Process(FileMetadata, Box<ExposureData>),
     GenerateThumbnail(FileMetadata),
 }
 

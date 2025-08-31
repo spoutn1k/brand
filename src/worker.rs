@@ -13,15 +13,14 @@ pub async fn handle_message(data: JsValue) -> JsResult<JsValue> {
     let message: models::WorkerMessage = serde_wasm_bindgen::from_value(data)?;
 
     match message {
-        models::WorkerMessage::Process(meta, dat) => process_exposure(&meta, &dat)
-            .await
-            .map(|_| JsValue::null())
-            .js_error(),
+        models::WorkerMessage::Process(meta, dat) => {
+            process_exposure(&meta, &dat).await.map(|_| JsValue::null())
+        }
         models::WorkerMessage::GenerateThumbnail(meta) => compress_image(meta)
             .await
-            .and_then(|a| serde_wasm_bindgen::to_value(&a).map_err(|e| e.into()))
-            .js_error(),
+            .and_then(|a| serde_wasm_bindgen::to_value(&a).map_err(|e| e.into())),
     }
+    .js_error()
 }
 
 #[derive(Clone)]
@@ -77,8 +76,9 @@ impl Pool {
             *state.done.borrow_mut() += 1;
 
             let st = state.clone();
+            let count = *st.done.borrow();
             wasm_bindgen_futures::spawn_local(async move {
-                st.tx.send(*st.done.borrow()).await.aquiesce();
+                st.tx.send(count).await.aquiesce();
             });
 
             state.callback.clone()(event);
@@ -90,7 +90,7 @@ impl Pool {
             Ok(())
         });
 
-        worker.set_onmessage(Some(&onmessage.as_ref().unchecked_ref()));
+        worker.set_onmessage(Some(onmessage.as_ref().unchecked_ref()));
         onmessage.forget();
 
         worker.post_message(&serde_wasm_bindgen::to_value(&task)?)?;
@@ -145,7 +145,7 @@ async fn process_exposure(metadata: &FileMetadata, data: &ExposureData) -> Resul
             .clone()
             .resize(2000, 2000, image::imageops::FilterType::Lanczos3),
         Cursor::new(&mut output),
-        &data,
+        data,
     )
     .expect("Global error");
 
@@ -153,7 +153,7 @@ async fn process_exposure(metadata: &FileMetadata, data: &ExposureData) -> Resul
 
     let mut output = Vec::with_capacity(100 * 1024 * 1024); // Reserve 100MB for the output
 
-    image_management::encode_tiff_with_exif(photo, Cursor::new(&mut output), &data)
+    image_management::encode_tiff_with_exif(photo, Cursor::new(&mut output), data)
         .expect("Failed to encode TIFF with EXIF");
 
     web_fs::write(format!("{:0>2}.tiff", metadata.index), output).await?;

@@ -17,7 +17,7 @@ use crate::{
     },
 };
 use controller::{UIExposureUpdate, UIRollUpdate, Update};
-use futures_lite::StreamExt;
+use futures::StreamExt;
 use image::ImageFormat;
 use std::{
     io::{Cursor, Write},
@@ -66,6 +66,8 @@ pub enum Error {
     Format(#[from] std::fmt::Error),
     #[error(transparent)]
     AsyncRecv(#[from] async_channel::RecvError),
+    #[error(transparent)]
+    ProgressSend(#[from] async_channel::SendError<controller::Progress>),
 }
 
 impl From<JsValue> for Error {
@@ -210,9 +212,27 @@ async fn process_images() -> Result<(), Error> {
         })
         .collect::<Result<Vec<_>, Error>>()?;
 
-    let pool = worker::Pool::try_new(tasks)?;
+    controller::notifier()
+        .send(controller::Progress::ProcessingStart(tasks.len() as u32))
+        .await?;
+
+    let pool = worker::Pool::try_new_with_callback(
+        tasks,
+        Box::new(|_| {
+            wasm_bindgen_futures::spawn_local(async move {
+                controller::notifier()
+                    .send(controller::Progress::Processing(0))
+                    .await
+                    .aquiesce();
+            })
+        }),
+    )?;
 
     pool.join().await?;
+
+    controller::notifier()
+        .send(controller::Progress::ProcessingDone)
+        .await?;
 
     export_dir(".", folder_name.into()).await
 }
@@ -737,11 +757,19 @@ fn disable_click(selector: &web_sys::HtmlInputElement) -> JsResult {
     Ok(())
 }
 
-fn set_image(
-    models::WorkerCompressionAnswer(index, base64): models::WorkerCompressionAnswer,
-) -> Result<(), Error> {
+fn set_image(data: JsValue) -> Result<(), Error> {
+    let models::WorkerCompressionAnswer(index, base64): models::WorkerCompressionAnswer =
+        serde_wasm_bindgen::from_value(data)?;
+
     query_id!(&format!("exposure-{index}-preview"))
         .set_attribute("src", &format!("data:image/jpeg;base64, {base64}"))?;
+
+    wasm_bindgen_futures::spawn_local(async move {
+        controller::notifier()
+            .send(controller::Progress::ThumbnailGenerated(index))
+            .await
+            .aquiesce();
+    });
 
     Ok(())
 }
@@ -768,16 +796,21 @@ async fn setup_editor_from_data(contents: Data) -> Result<(), Error> {
 
 async fn generate_thumbnails() -> Result<(), Error> {
     let data: Meta = serde_json::from_str(&storage!().get_existing("metadata")?)?;
-    let tasks = data
+    let tasks: Vec<_> = data
         .into_values()
         .map(models::WorkerMessage::GenerateThumbnail)
         .collect();
+
+    controller::notifier()
+        .send(controller::Progress::ThumbnailStart(tasks.len() as u32))
+        .await
+        .aquiesce();
 
     let earlier = instant::SystemTime::now();
     let pool = worker::Pool::try_new_with_callback(
         tasks,
         Box::new(|e: MessageEvent| {
-            set_image(serde_wasm_bindgen::from_value(e.data()).unwrap()).aquiesce()
+            set_image(e.data()).aquiesce();
         }),
     )?;
 
@@ -789,6 +822,10 @@ async fn generate_thumbnails() -> Result<(), Error> {
         .as_secs_f32();
 
     log::debug!("Generated thumbnails in {now}s");
+    controller::notifier()
+        .send(controller::Progress::ThumbnailDone)
+        .await
+        .aquiesce();
 
     Ok(())
 }
@@ -807,6 +844,10 @@ pub fn setup() -> JsResult {
             setup_editor_from_data(data).await.aquiesce();
         });
     }
+
+    wasm_bindgen_futures::spawn_local(
+        async move { controller::handle_progress().await.aquiesce() },
+    );
 
     Ok(())
 }

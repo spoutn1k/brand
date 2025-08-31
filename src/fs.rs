@@ -1,5 +1,5 @@
 use crate::Aquiesce;
-use futures_lite::StreamExt;
+use futures::StreamExt;
 use std::path::Path;
 use wasm_bindgen::prelude::wasm_bindgen;
 

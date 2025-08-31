@@ -6,9 +6,16 @@ use crate::{
         WorkerCompressionAnswer,
     },
 };
+use async_channel::{Receiver, Sender};
 use chrono::NaiveDateTime;
-use std::{convert::TryInto, path::PathBuf};
+use std::{cell::Cell, convert::TryInto, path::PathBuf};
 use wasm_bindgen::{JsCast, JsValue};
+
+thread_local! {
+static CHANNEL: (Sender<Progress>, Receiver<Progress>) = async_channel::bounded(80);
+static THUMBNAIL_TRACKER: Cell<(u32, u32)> = Cell::new((0, 0));
+static PROCESSING_TRACKER: Cell<(u32, u32)> = Cell::new((0, 0));
+}
 
 pub enum Update {
     SelectExposure(u32, bool, bool),
@@ -409,6 +416,59 @@ fn update_roll_ui(data: &UIRollUpdate) -> JsResult {
     };
 
     query_id!(id, web_sys::HtmlInputElement).set_value(contents);
+
+    Ok(())
+}
+
+#[derive(Debug)]
+pub enum Progress {
+    ProcessingStart(u32),
+    Processing(u32),
+    ProcessingDone,
+    ThumbnailGenerated(u32),
+    ThumbnailStart(u32),
+    ThumbnailDone,
+}
+
+pub fn notifier() -> Sender<Progress> {
+    CHANNEL.with(|t| t.0.clone())
+}
+
+pub fn sender() -> Receiver<Progress> {
+    CHANNEL.with(|t| t.1.clone())
+}
+
+pub async fn handle_progress() -> Result<(), Error> {
+    let thumbnails = query_id!("thumbnails");
+    let processing = query_id!("processing");
+
+    while let Ok(data) = sender().recv().await {
+        match data {
+            Progress::ThumbnailStart(count) => {
+                THUMBNAIL_TRACKER.set((0, count));
+                thumbnails.set_text_content(Some(&format!("Generating thumbnails (0/{count})")));
+            }
+            Progress::ThumbnailGenerated(_) => {
+                let (done, count) = THUMBNAIL_TRACKER.get();
+                let done = done + 1;
+                THUMBNAIL_TRACKER.set((done, count));
+                thumbnails
+                    .set_text_content(Some(&format!("Generating thumbnails ({done}/{count})")));
+            }
+            Progress::ThumbnailDone => thumbnails.set_text_content(Some("")),
+            Progress::ProcessingStart(count) => {
+                PROCESSING_TRACKER.set((0, count));
+                processing.set_text_content(Some(&format!("Processing (0/{count})")));
+            }
+            Progress::Processing(_) => {
+                let (done, count) = PROCESSING_TRACKER.get();
+                let done = done + 1;
+                PROCESSING_TRACKER.set((done, count));
+                processing.set_text_content(Some(&format!("Processing ({done}/{count})")));
+            }
+            Progress::ProcessingDone => processing.set_text_content(Some("")),
+        }
+    }
 
     Ok(())
 }

@@ -1,64 +1,40 @@
-use wasm_bindgen::JsValue;
-
-#[derive(Debug, thiserror::Error)]
-pub enum MacroError {
-    #[error("Failed to access global `window`")]
-    NoWindow,
-    #[error("Failed to access `document` on global `window`")]
-    NoDocument,
-    #[error("Failed to access `session_storage` on global `window`")]
-    NoStorage,
-    #[error("Failed to access element with id {0}")]
-    NoElementId(String),
-    #[error("Query returned no results: {0}")]
-    SelectorFailed(String),
-    #[error("No target for event !")]
-    NoTarget,
-    #[error("JS error: {0:?}")]
-    JsError(JsValue),
-}
-
-impl From<MacroError> for JsValue {
-    fn from(err: MacroError) -> Self {
-        JsValue::from_str(&err.to_string())
-    }
-}
+use crate::Error;
 
 macro_rules! document {
     () => {{
         web_sys::window()
-            .ok_or(MacroError::NoWindow)
-            .and_then(|w| w.document().ok_or(MacroError::NoDocument))
+            .ok_or(Error::NoWindow)
+            .and_then(|w| w.document().ok_or(Error::NoDocument))
     }};
 }
 
 macro_rules! body {
     () => {{
         web_sys::window()
-            .ok_or(MacroError::NoWindow)
-            .and_then(|w| w.document().ok_or(MacroError::NoDocument))
-            .and_then(|d| d.body().ok_or(MacroError::NoDocument))
+            .ok_or(Error::NoWindow)
+            .and_then(|w| w.document().ok_or(Error::NoDocument))
+            .and_then(|d| d.body().ok_or(Error::NoDocument))
     }};
 }
 
 macro_rules! storage {
     () => {{
-        web_sys::window().ok_or(MacroError::NoWindow).and_then(|w| {
+        web_sys::window().ok_or(Error::NoWindow).and_then(|w| {
             w.session_storage()
-                .map_err(MacroError::JsError)
-                .and_then(|s| s.ok_or(MacroError::NoStorage))
+                .map_err(|e| Error::Js(e.as_string().unwrap_or_default()))
+                .and_then(|s| s.ok_or(Error::NoStorage))
         })
     }};
 }
 
 pub trait SessionStorageExt {
-    fn get_existing(&self, key: &str) -> Result<String, crate::Error>;
+    fn get_existing(&self, key: &str) -> Result<String, Error>;
 }
 
 impl SessionStorageExt for web_sys::Storage {
-    fn get_existing(&self, key: &str) -> Result<String, crate::Error> {
+    fn get_existing(&self, key: &str) -> Result<String, Error> {
         self.get_item(key)?
-            .ok_or_else(|| crate::Error::MissingKey(key.to_string()))
+            .ok_or_else(|| Error::MissingKey(key.to_string()))
     }
 }
 
@@ -67,11 +43,11 @@ macro_rules! query_id {
 
     ($id:expr) => {{
         web_sys::window()
-            .ok_or(MacroError::NoWindow)
-            .and_then(|w| w.document().ok_or(MacroError::NoDocument))
+            .ok_or(Error::NoWindow)
+            .and_then(|w| w.document().ok_or(Error::NoDocument))
             .and_then(|d| {
                 d.get_element_by_id($id)
-                    .ok_or(MacroError::NoElementId($id.to_string()))
+                    .ok_or(Error::NoElementId($id.to_string()))
             })
     }};
 }
@@ -79,11 +55,11 @@ macro_rules! query_id {
 macro_rules! query_selector {
     ($selector:expr) => {{
         web_sys::window()
-            .ok_or(MacroError::NoWindow)?
+            .ok_or(Error::NoWindow)?
             .document()
-            .ok_or(MacroError::NoDocument)?
+            .ok_or(Error::NoDocument)?
             .query_selector($selector)?
-            .ok_or(MacroError::SelectorFailed($selector.to_string()))?
+            .ok_or(Error::SelectorFailed($selector.to_string()))?
     }};
 
     ($selector:expr, $type:ty) => {{ query_selector!($selector).dyn_into::<$type>()? }};
@@ -114,9 +90,9 @@ macro_rules! roll_placeholder {
 macro_rules! el {
     ($tag:expr) => {
         web_sys::window()
-            .ok_or(MacroError::NoWindow)?
+            .ok_or(Error::NoWindow)?
             .document()
-            .ok_or(MacroError::NoDocument)?
+            .ok_or(Error::NoDocument)?
             .create_element($tag)?
     };
 
@@ -127,7 +103,7 @@ macro_rules! el {
 
 macro_rules! event_target {
     ($event:expr) => {
-        $event.target().ok_or(MacroError::NoTarget)?
+        $event.target().ok_or(Error::NoTarget)?
     };
 
     ($event:expr, $type:ty) => {

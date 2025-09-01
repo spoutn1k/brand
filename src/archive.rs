@@ -1,6 +1,6 @@
 use crate::{
     Error, download_buffer,
-    macros::{MacroError, SessionStorageExt, storage},
+    macros::{SessionStorageExt, storage},
     models::Data,
 };
 use futures::StreamExt;

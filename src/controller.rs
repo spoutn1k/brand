@@ -1,6 +1,6 @@
 use crate::{
     Aquiesce, Error, JsResult, Orientation,
-    macros::{MacroError, SessionStorageExt, query_id, storage},
+    macros::{SessionStorageExt, query_id, storage},
     models::{
         Data, ExposureData, ExposureSpecificData, FileMetadata, MAX_EXPOSURES, Meta, Selection,
         WorkerCompressionAnswer,

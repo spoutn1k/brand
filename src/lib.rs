@@ -9,8 +9,8 @@ pub mod worker;
 
 use crate::{
     macros::{
-        MacroError, SessionStorageExt, body, document, el, event_target, query_id, query_selector,
-        roll_input, roll_placeholder, storage,
+        SessionStorageExt, body, document, el, event_target, query_id, query_selector, roll_input,
+        roll_placeholder, storage,
     },
     models::{
         Data, FileMetadata, MAX_EXPOSURES, Meta, Orientation, RollData, TseParseError,
@@ -61,8 +61,6 @@ pub enum Error {
     Serde(#[from] serde_json::Error),
     #[error(transparent)]
     SerdeWasm(#[from] serde_wasm_bindgen::Error),
-    #[error(transparent)]
-    Macro(#[from] MacroError),
     #[error("Missing key from storage: {0}")]
     MissingKey(String),
     #[error(transparent)]
@@ -85,6 +83,18 @@ pub enum Error {
     ProgressSend(#[from] async_channel::SendError<controller::Progress>),
     #[error(transparent)]
     ThreadVariable(#[from] AccessError),
+    #[error("Failed to access global `window`")]
+    NoWindow,
+    #[error("Failed to access `document` on global `window`")]
+    NoDocument,
+    #[error("Failed to access `session_storage` on global `window`")]
+    NoStorage,
+    #[error("Failed to access element with id {0}")]
+    NoElementId(String),
+    #[error("Query returned no results: {0}")]
+    SelectorFailed(String),
+    #[error("No target for event !")]
+    NoTarget,
 }
 
 impl From<JsValue> for Error {

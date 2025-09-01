@@ -50,7 +50,7 @@ impl Pool {
         };
 
         let concurrency = web_sys::window()
-            .ok_or(Error::Macro(crate::MacroError::NoWindow))?
+            .ok_or(Error::NoWindow)?
             .navigator()
             .hardware_concurrency() as usize;
 

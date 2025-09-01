@@ -55,14 +55,17 @@ macro_rules! query_id {
 macro_rules! query_selector {
     ($selector:expr) => {{
         web_sys::window()
-            .ok_or(Error::NoWindow)?
-            .document()
-            .ok_or(Error::NoDocument)?
-            .query_selector($selector)?
-            .ok_or(Error::SelectorFailed($selector.to_string()))?
+            .ok_or(Error::NoWindow)
+            .and_then(|w| w.document().ok_or(Error::NoDocument))
+            .and_then(|d| {
+                d.query_selector($selector)
+                    .transpose()
+                    .ok_or(Error::SelectorFailed($selector.to_string()))
+                    .and_then(|r| r.map_err(Error::from))
+            })
     }};
 
-    ($selector:expr, $type:ty) => {{ query_selector!($selector).dyn_into::<$type>()? }};
+    ($selector:expr, $type:ty) => {{ query_selector!($selector).and_then(|e| e.dyn_into::<$type>()) }};
 }
 
 macro_rules! roll_input {
@@ -90,24 +93,23 @@ macro_rules! roll_placeholder {
 macro_rules! el {
     ($tag:expr) => {
         web_sys::window()
-            .ok_or(Error::NoWindow)?
-            .document()
-            .ok_or(Error::NoDocument)?
-            .create_element($tag)?
+            .ok_or(Error::NoWindow)
+            .and_then(|w| w.document().ok_or(Error::NoDocument))
+            .and_then(|d| d.create_element($tag).map_err(Error::from))
     };
 
     ($tag:expr, $type:ty) => {
-        el!($tag).unchecked_into::<$type>()
+        el!($tag).map(|e| e.unchecked_into::<$type>())
     };
 }
 
 macro_rules! event_target {
     ($event:expr) => {
-        $event.target().ok_or(Error::NoTarget)?
+        $event.target().ok_or(Error::NoTarget)
     };
 
     ($event:expr, $type:ty) => {
-        event_target!($event).unchecked_into::<$type>()
+        event_target!($event).map(|e| e.unchecked_into::<$type>())
     };
 }
 

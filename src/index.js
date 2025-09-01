@@ -20,13 +20,13 @@ function prompt_coords(index) {
         map.invalidateSize()
     }, 200);
 
-    function update_exposure(e) {
+    async function update_exposure(e) {
         const {
             lat,
             lng
         } = e.latlng;
 
-        window.wasmBindings.update_coords(index, lat.toFixed(8), lng.toFixed(8));
+        await window.wasmBindings.update_coords(index, lat.toFixed(8), lng.toFixed(8));
         if (marker) {
             map.removeLayer(marker);
         }

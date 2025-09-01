@@ -13,7 +13,7 @@ use crate::{
         roll_placeholder, storage,
     },
     models::{
-        Data, FileMetadata, MAX_EXPOSURES, Meta, Orientation, RollData, TseParseError,
+        Data, FileKind, FileMetadata, MAX_EXPOSURES, Meta, Orientation, RollData, TseParseError,
         WorkerMessage,
     },
 };
@@ -25,24 +25,26 @@ use std::{
     thread::AccessError,
 };
 use wasm_bindgen::prelude::*;
-use web_sys::{Blob, KeyEvent, KeyboardEvent, MessageEvent};
+use web_sys::{Blob, Event, KeyEvent, KeyboardEvent, MessageEvent};
 
 pub type JsResult<T = ()> = Result<T, JsValue>;
 
 thread_local! {
 static KEY_HANDLER: Closure<dyn Fn(KeyboardEvent)> =
-    Closure::new(|event: KeyboardEvent| handle_keypress(event.key_code()).aquiesce());
+    Closure::new(handle_keypress);
+static INHIBIT: Closure<dyn Fn(Event)>= Closure::new(move |e: Event| e.prevent_default())
 }
 
-fn handle_keypress(key_code: u32) -> Result<(), Error> {
-    match key_code {
-        KeyEvent::DOM_VK_ESCAPE => wasm_bindgen_futures::spawn_local(async move {
-            controller::update(Update::SelectionClear).await.aquiesce()
-        }),
-        _ => (),
-    };
+fn handle_keypress(event: KeyboardEvent) {
+    let key_code = event.key_code();
 
-    Ok(())
+    wasm_bindgen_futures::spawn_local(async move {
+        match key_code {
+            KeyEvent::DOM_VK_ESCAPE => controller::update(Update::SelectionClear).await,
+            _ => Ok(()),
+        }
+        .aquiesce()
+    })
 }
 
 #[wasm_bindgen]
@@ -215,29 +217,6 @@ fn extract_index_from_filename(filename: &str) -> Option<u32> {
         .map(|i| i % 100)
 }
 
-#[derive(PartialEq, Eq, Default)]
-enum FileKind {
-    Image(ImageFormat),
-    Tse,
-    #[default]
-    Unknown,
-}
-
-impl From<PathBuf> for FileKind {
-    fn from(value: PathBuf) -> Self {
-        value
-            .extension()
-            .and_then(|value| {
-                if value == "tse" {
-                    return Some(Self::Tse);
-                }
-
-                ImageFormat::from_extension(value).map(Self::Image)
-            })
-            .unwrap_or_default()
-    }
-}
-
 async fn import_tse(entry: &web_sys::FileSystemFileEntry) -> Result<(), Error> {
     let file_load = Closure::once(move |file: web_sys::File| -> JsResult {
         let reader = web_sys::FileReader::new()?;
@@ -378,7 +357,6 @@ async fn setup_editor_from_files(files: &[web_sys::FileSystemFileEntry]) -> Resu
     drop(tx);
 
     while rx.sender_count() > 0 {
-        log::info!("Sender count: {:?}", rx.sender_count());
         rx.recv().await?;
     }
 
@@ -657,17 +635,13 @@ fn create_row(index: u32, selected: bool) -> Result<(), Error> {
 }
 
 #[wasm_bindgen]
-pub fn update_coords(index: u32, lat: f64, lon: f64) -> JsResult {
-    wasm_bindgen_futures::spawn_local(async move {
-        controller::update(Update::ExposureField(
-            index,
-            UIExposureUpdate::Gps(format!("{lat}, {lon}")),
-        ))
-        .await
-        .aquiesce()
-    });
-
-    Ok(())
+pub async fn update_coords(index: u32, lat: f64, lon: f64) -> JsResult {
+    controller::update(Update::ExposureField(
+        index,
+        UIExposureUpdate::Gps(format!("{lat}, {lon}")),
+    ))
+    .await
+    .js_error()
 }
 
 fn setup_drag_drop(photo_selector: &web_sys::HtmlInputElement) -> JsResult {
@@ -693,12 +667,11 @@ fn setup_drag_drop(photo_selector: &web_sys::HtmlInputElement) -> JsResult {
 }
 
 fn disable_click(selector: &web_sys::HtmlInputElement) -> JsResult {
-    let disable_click =
-        Closure::<dyn Fn(_)>::new(move |e: web_sys::InputEvent| e.prevent_default());
-    selector.add_event_listener_with_callback("click", disable_click.as_ref().unchecked_ref())?;
-    disable_click.forget();
-
-    Ok(())
+    INHIBIT
+        .try_with(|c| {
+            selector.add_event_listener_with_callback("click", c.as_ref().unchecked_ref())
+        })
+        .map_err(Error::from)?
 }
 
 fn set_image(data: JsValue) -> Result<(), Error> {
@@ -733,9 +706,7 @@ async fn setup_editor_from_data(contents: Data) -> Result<(), Error> {
     query_id!("photoselect")?.class_list().add_1("hidden")?;
     query_id!("editor")?.class_list().remove_1("hidden")?;
 
-    generate_thumbnails().await?;
-
-    Ok(())
+    generate_thumbnails().await
 }
 
 async fn generate_thumbnails() -> Result<(), Error> {
@@ -747,10 +718,8 @@ async fn generate_thumbnails() -> Result<(), Error> {
 
     controller::notifier()
         .send(controller::Progress::ThumbnailStart(tasks.len() as u32))
-        .await
-        .aquiesce();
+        .await?;
 
-    let earlier = instant::SystemTime::now();
     let pool = worker::Pool::try_new_with_callback(
         tasks,
         Box::new(|e: MessageEvent| {
@@ -758,18 +727,11 @@ async fn generate_thumbnails() -> Result<(), Error> {
         }),
     )?;
 
-    pool.join().await.aquiesce();
+    pool.join().await?;
 
-    let now = instant::SystemTime::now()
-        .duration_since(earlier)
-        .unwrap_or_default()
-        .as_secs_f32();
-
-    log::debug!("Generated thumbnails in {now}s");
     controller::notifier()
         .send(controller::Progress::ThumbnailDone)
-        .await
-        .aquiesce();
+        .await?;
 
     Ok(())
 }

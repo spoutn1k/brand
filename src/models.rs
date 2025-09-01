@@ -3,6 +3,7 @@ use crate::{
     controller::{ExposureUpdate, RollUpdate},
 };
 use chrono::{DateTime, NaiveDateTime};
+use image::ImageFormat;
 use serde::{Deserialize, Serialize};
 use std::{
     cmp,
@@ -496,6 +497,29 @@ pub struct FileMetadata {
     pub index: u32,
     pub orientation: Orientation,
     pub file_type: Option<String>,
+}
+
+#[derive(PartialEq, Eq, Default)]
+pub enum FileKind {
+    Image(ImageFormat),
+    Tse,
+    #[default]
+    Unknown,
+}
+
+impl From<PathBuf> for FileKind {
+    fn from(value: PathBuf) -> Self {
+        value
+            .extension()
+            .and_then(|value| {
+                if value == "tse" {
+                    return Some(Self::Tse);
+                }
+
+                ImageFormat::from_extension(value).map(Self::Image)
+            })
+            .unwrap_or_default()
+    }
 }
 
 pub type Meta = HashMap<PathBuf, FileMetadata>;

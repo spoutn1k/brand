@@ -1,130 +1,141 @@
 #map {
-    display: block;
-    position: fixed;
-    top: 0;
-    bottom: 0;
-    right: 0;
-    left: 0;
+  display: block;
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  left: 0;
 
-    &.hidden {
-        display: none;
-    }
+  &.hidden {
+    display: none;
+  }
 }
 
 #photoselect {
-    width: 100%;
-    height: 100%;
+  width: 100%;
+  height: 100%;
 
-    &::file-selector-button {
-        display: none;
-    }
+  &::file-selector-button {
+    display: none;
+  }
 
-    &.hidden {
-        display: none;
-    }
+  &.hidden {
+    display: none;
+  }
+
+  opacity: 0;
 }
 
 input {
-    border: 0;
-    width: 100%;
-    background: unset;
+  border: 0;
+  width: 100%;
+  background: unset;
 
-    &:focus {
-        outline: none;
-    }
+  &:focus {
+    outline: none;
+  }
 }
 
+body {
+  background: #256;
+}
 
 #editor {
-    display: flex;
-    height: 100%;
-    width: 100%;
+  display: grid;
+  height: 100%;
+  width: 100%;
 
-    flex-flow: column;
+  grid-template-areas: "preview header" "preview exposures";
+
+  gap: 1rem;
+
+  &.hidden {
+    display: none;
+  }
+
+  div#preview {
+    flex: 1;
+
+    display: flex;
+    position: relative;
     gap: 1rem;
 
-    &.hidden {
-        display: none;
+    max-height: 100%;
+    overflow: hidden;
+    overflow-y: scroll;
+    flex-flow: column;
+
+    grid-area: preview;
+
+    img {
+      max-height: 100%;
     }
+  }
 
-    div#preview {
-        flex: 1;
+  div#header {
+    flex: 0 1 auto;
 
-        display: grid;
-        grid-template-columns: repeat(80, 1fr);
-        position: relative;
-        gap: 1rem;
+    display: flex;
+    flex-flow: row;
+    justify-content: space-between;
 
-        max-height: 100%;
-        overflow: hidden;
-        overflow-x: scroll;
+    grid-area: header;
+
+    div#roll {
+      display: flex;
+      flex-flow: row;
+    }
+  }
+
+  table#exposures {
+    flex: 1;
+    display: flex;
+    flex-flow: column;
+    gap: .5rem;
+    overflow: auto;
+
+    grid-area: exposures;
+
+    tr {
+      background: #ddd;
+
+      display: flex;
+      flex-flow: row;
+      gap: .5rem;
+      justify-content: space-between;
+
+      &.selected {
+        background: #f00;
+      }
+
+      td:has(img) {
+        display: flex;
+        min-width: 64px;
+        width: 64px;
+        height: 64px;
+        align-items: center;
+        justify-content: center;
 
         img {
-            max-height: 100%;
+          max-width: 100%;
+          max-height: 100%;
         }
-    }
 
-    div#header {
-        flex: 0 1 auto;
+        &.negative {
+          background: rgba(82, 35, 19, .8);
 
+          img {
+            filter: invert(1);
+            opacity: .7;
+            mix-blend-mode: multiply;
+          }
+        }
+      }
+
+      td {
         display: flex;
         flex-flow: row;
-        justify-content: space-between;
-
-        div#roll {
-            display: flex;
-            flex-flow: row;
-        }
+      }
     }
-
-    table#exposures {
-        flex: 1;
-        display: flex;
-        flex-flow: column;
-        gap: .5rem;
-        overflow: auto;
-
-        tr {
-            background: #ddd;
-
-            display: flex;
-            flex-flow: row;
-            gap: .5rem;
-            justify-content: space-between;
-
-            &.selected {
-                background: #f00;
-            }
-
-            td:has(img) {
-                display: flex;
-                min-width: 64px;
-                width: 64px;
-                height: 64px;
-                align-items: center;
-                justify-content: center;
-
-                img {
-                    max-width: 100%;
-                    max-height: 100%;
-                }
-
-                &.negative {
-                    background: rgba(82, 35, 19, .8);
-
-                    img {
-                        filter: invert(1);
-                        opacity: .7;
-                        mix-blend-mode: multiply;
-                    }
-                }
-            }
-
-            td {
-                display: flex;
-                flex-flow: row;
-
-            }
-        }
-    }
+  }
 }

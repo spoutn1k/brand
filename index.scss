@@ -11,25 +11,13 @@
   }
 }
 
-#photoselect {
-  width: 100%;
-  height: 100%;
-
-  &::file-selector-button {
-    display: none;
-  }
-
-  &.hidden {
-    display: none;
-  }
-
-  opacity: 0;
-}
-
 input {
+  font-family: monospace;
   border: 0;
   width: 100%;
-  background: unset;
+  background: "#FFF8DC";
+  border-radius: .19rem;
+  padding: .3rem;
 
   &:focus {
     outline: none;
@@ -40,12 +28,42 @@ body {
   background: #256;
 }
 
+#landing {
+  position: relative;
+  display: flex;
+
+  #photoselect {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: 0;
+
+    &::file-selector-button {
+      display: none;
+    }
+
+    opacity: 0;
+
+    z-index: 1;
+  }
+
+  * {
+    z-index: 2;
+  }
+
+  &.hidden {
+    display: none;
+  }
+}
+
 #editor {
   display: grid;
   height: 100%;
   width: 100%;
 
   grid-template-areas: "preview header" "preview exposures";
+  grid-template-columns: 30% auto;
 
   gap: 1rem;
 
@@ -73,12 +91,11 @@ body {
   }
 
   div#header {
-    flex: 0 1 auto;
-
     display: flex;
+    flex: 0 1 auto;
     flex-flow: row;
-    justify-content: space-between;
 
+    justify-content: space-between;
     grid-area: header;
 
     div#roll {
@@ -87,54 +104,32 @@ body {
     }
   }
 
-  table#exposures {
-    flex: 1;
-    display: flex;
-    flex-flow: column;
-    gap: .5rem;
-    overflow: auto;
+  div#exposures {
+    font-family: monospace;
+    background-color: bisque;
+    border-radius: .5rem;
 
-    grid-area: exposures;
-
-    tr {
-      background: #ddd;
-
+    div#exposure-specific {
       display: flex;
-      flex-flow: row;
-      gap: .5rem;
-      justify-content: space-between;
+      flex-flow: column;
+      padding: 1rem;
 
-      &.selected {
-        background: #f00;
+      #exposures-title {
+        font-size: 2rem;
       }
 
-      td:has(img) {
-        display: flex;
-        min-width: 64px;
-        width: 64px;
-        height: 64px;
-        align-items: center;
-        justify-content: center;
-
-        img {
-          max-width: 100%;
-          max-height: 100%;
-        }
-
-        &.negative {
-          background: rgba(82, 35, 19, .8);
-
-          img {
-            filter: invert(1);
-            opacity: .7;
-            mix-blend-mode: multiply;
-          }
-        }
+      &.hidden {
+        display: none;
       }
+    }
 
-      td {
-        display: flex;
-        flex-flow: row;
+    div#roll {
+      display: flex;
+      flex-flow: column;
+      padding: 1rem;
+
+      &.hidden {
+        display: none;
       }
     }
   }

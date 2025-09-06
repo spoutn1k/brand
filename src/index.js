@@ -13,7 +13,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
     }).addTo(map);
 });
 
-function prompt_coords(index) {
+function prompt_coords() {
     document.getElementById("map").classList.toggle("hidden");
 
     setTimeout(function() {
@@ -26,7 +26,7 @@ function prompt_coords(index) {
             lng
         } = e.latlng;
 
-        await window.wasmBindings.update_coords(index, lat.toFixed(8), lng.toFixed(8));
+        await window.wasmBindings.update_coords(lat.toFixed(8), lng.toFixed(8));
         if (marker) {
             map.removeLayer(marker);
         }

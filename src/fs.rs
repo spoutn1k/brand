@@ -43,6 +43,13 @@ pub async fn print_dir_recursively<P: AsRef<Path>>(
     Ok(())
 }
 
+pub async fn file_count() -> u32 {
+    let mut fs_log = String::new();
+    print_dir_recursively("", 0, &mut fs_log).await.aquiesce();
+
+    fs_log.lines().count() as u32
+}
+
 #[wasm_bindgen]
 pub async fn print_all() {
     let mut fs_log = String::new();

@@ -20,7 +20,7 @@ macro_rules! body {
 macro_rules! storage {
     () => {{
         web_sys::window().ok_or(Error::NoWindow).and_then(|w| {
-            w.session_storage()
+            w.local_storage()
                 .map_err(|e| Error::Js(e.as_string().unwrap_or_default()))
                 .and_then(|s| s.ok_or(Error::NoStorage))
         })
@@ -68,28 +68,6 @@ macro_rules! query_selector {
     ($selector:expr, $type:ty) => {{ query_selector!($selector).and_then(|e| e.dyn_into::<$type>()) }};
 }
 
-macro_rules! roll_input {
-    ($field:ident, $data:expr) => {{
-        query_id!(
-            &format!("roll-{}-input", stringify!($field)),
-            web_sys::HtmlInputElement
-        )
-        .inspect(|e| e.set_value($data.$field.as_ref().unwrap_or(&String::new())))
-    }};
-}
-
-macro_rules! roll_placeholder {
-    ($field:ident, $placeholder:expr) => {{
-        query_id!(
-            &format!("roll-{}-input", stringify!($field)),
-            web_sys::HtmlInputElement
-        )
-        .inspect(|e| {
-            let _ = e.set_attribute("placeholder", $placeholder);
-        })
-    }};
-}
-
 macro_rules! el {
     ($tag:expr) => {
         web_sys::window()
@@ -119,6 +97,4 @@ pub(crate) use el;
 pub(crate) use event_target;
 pub(crate) use query_id;
 pub(crate) use query_selector;
-pub(crate) use roll_input;
-pub(crate) use roll_placeholder;
 pub(crate) use storage;

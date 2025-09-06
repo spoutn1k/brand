@@ -6,18 +6,14 @@ pub mod gps;
 pub mod image_management;
 pub mod macros;
 pub mod models;
+pub mod view;
 pub mod worker;
 
 use crate::{
-    macros::{
-        SessionStorageExt, body, document, el, event_target, query_id, query_selector, roll_input,
-        roll_placeholder, storage,
-    },
-    models::{
-        Data, FileKind, FileMetadata, MAX_EXPOSURES, Meta, Orientation, RollData, WorkerMessage,
-    },
+    macros::{SessionStorageExt, body, document, el, query_id, storage},
+    models::{Data, FileKind, FileMetadata, Meta, Orientation, WorkerMessage},
 };
-use controller::{UIExposureUpdate, UIRollUpdate, Update};
+use controller::{UIExposureUpdate, Update};
 use image::ImageFormat;
 use js_sys::{Array, Uint8Array};
 use std::{
@@ -26,42 +22,28 @@ use std::{
 };
 use wasm_bindgen::prelude::*;
 use web_sys::{
-    Blob, Event, File as WebFile, FileSystemFileEntry, HtmlElement, HtmlInputElement, InputEvent,
-    KeyEvent, KeyboardEvent, MessageEvent,
+    Blob, Event, File as WebFile, FileSystemFileEntry, HtmlElement, HtmlInputElement, KeyEvent,
+    KeyboardEvent, MessageEvent,
 };
 
 pub use error::{Aquiesce, Error, JsError, JsResult};
 
-thread_local! {
-static KEY_HANDLER: Closure<dyn Fn(KeyboardEvent)> = Closure::new(handle_keypress);
+pub mod bindings {
+    use wasm_bindgen::prelude::wasm_bindgen;
 
-static INHIBIT: Closure<dyn Fn(Event)> = Closure::new(move |e: Event| e.prevent_default());
-
-static ROTATE_LEFT: Closure<dyn Fn(Event)> = Closure::new(move |_| {
-    wasm_bindgen_futures::spawn_local(async move {
-        controller::update(Update::RotateLeft).await.aquiesce()
-    });
-});
-
-static RESET: Closure<dyn Fn(Event) -> JsResult> = Closure::new(|_| reset_editor());
-
-static CLEAR: Closure<dyn Fn(Event)> = Closure::new(move |_| {
-    wasm_bindgen_futures::spawn_local(async move {
-        controller::update(Update::SelectionClear).await.aquiesce()
-    });
-});
+    #[wasm_bindgen]
+    extern "C" {
+        fn set_marker(x: f64, y: f64);
+        pub fn prompt_coords();
+    }
 }
 
-fn handle_keypress(event: KeyboardEvent) {
-    let key_code = event.key_code();
-
-    wasm_bindgen_futures::spawn_local(async move {
-        match key_code {
-            KeyEvent::DOM_VK_ESCAPE => controller::update(Update::SelectionClear).await,
-            _ => Ok(()),
-        }
-        .aquiesce()
-    })
+thread_local! {
+static KEY_HANDLER: Closure<dyn Fn(KeyboardEvent)> = Closure::new(|e: KeyboardEvent|{
+    if e.key_code() == KeyEvent::DOM_VK_ESCAPE {
+        controller::update(controller::Update::SelectionClear).aquiesce()
+    }
+});
 }
 
 async fn process_images() -> Result<(), Error> {
@@ -154,7 +136,9 @@ async fn import_tse(entry: &FileSystemFileEntry) -> Result<(), Error> {
             let data = models::read_tse(Cursor::new(raw))?;
 
             storage!()?.set_item("data", &serde_json::to_string(&data).unwrap())?;
-            controller::overhaul_data(data).js_error()
+            //controller::overhaul_data(data).js_error()
+
+            Ok(())
         });
 
         reader.set_onloadend(Some(closure.as_ref().unchecked_ref()));
@@ -171,8 +155,6 @@ async fn import_tse(entry: &FileSystemFileEntry) -> Result<(), Error> {
 }
 
 async fn setup_editor_from_files(files: &[FileSystemFileEntry]) -> Result<(), Error> {
-    fill_roll_fields(&RollData::default())?;
-
     let (images, other): (Vec<_>, Vec<_>) = files
         .iter()
         .partition(|f| matches!(FileKind::from(PathBuf::from(&f.name())), FileKind::Image(_)));
@@ -223,9 +205,9 @@ async fn setup_editor_from_files(files: &[FileSystemFileEntry]) -> Result<(), Er
         &serde_json::to_string(&metadata.iter().cloned().collect::<Meta>())?,
     )?;
 
-    for index in 1..=images.len() as u32 {
-        create_row(index, false)?;
-    }
+    view::preview::setup()?;
+    view::preview::create(images.len() as u32)?;
+    view::exposure::setup()?;
 
     storage!()?.set_item(
         "data",
@@ -263,9 +245,7 @@ async fn setup_editor_from_files(files: &[FileSystemFileEntry]) -> Result<(), Er
                 wasm_bindgen_futures::spawn_local(async move {
                     meta.local_fs_path = Some(path.clone());
                     fs::write_to_fs(&path, r).await.aquiesce();
-                    controller::update(Update::FileMetadata(file_id, meta.clone()))
-                        .await
-                        .aquiesce();
+                    controller::update(Update::FileMetadata(file_id, meta.clone())).aquiesce();
                     tx.send(()).await.unwrap();
                 });
             });
@@ -294,60 +274,10 @@ async fn setup_editor_from_files(files: &[FileSystemFileEntry]) -> Result<(), Er
 
     log::debug!("Imported files in {now}s");
 
-    query_id!("photoselect")?.class_list().add_1("hidden")?;
+    query_id!("landing")?.class_list().add_1("hidden")?;
     query_id!("editor")?.class_list().remove_1("hidden")?;
 
     generate_thumbnails().await?;
-
-    Ok(())
-}
-
-fn set_roll_handler(
-    field: impl Fn(String) -> UIRollUpdate + 'static + Clone,
-    input: &web_sys::Element,
-) -> JsResult {
-    let handler = Closure::<dyn Fn(_)>::new(move |event: Event| {
-        let field = field.clone();
-        wasm_bindgen_futures::spawn_local(async move {
-            controller::update(Update::Roll(field(
-                event_target!(event, HtmlInputElement)
-                    .map(|t| t.value())
-                    .unwrap_or_default(),
-            )))
-            .await
-            .aquiesce()
-        })
-    });
-
-    input.add_event_listener_with_callback("input", handler.as_ref().unchecked_ref())?;
-    handler.forget();
-
-    Ok(())
-}
-
-fn set_exposure_handler(
-    index: u32,
-    field: impl Fn(String) -> UIExposureUpdate + 'static + Clone,
-    input: &web_sys::Element,
-) -> JsResult {
-    let handler = Closure::<dyn Fn(_)>::new(move |event: Event| {
-        let field = field.clone();
-        wasm_bindgen_futures::spawn_local(async move {
-            controller::update(Update::ExposureField(
-                index,
-                field(
-                    event_target!(event, HtmlInputElement)
-                        .map(|t| t.value())
-                        .unwrap_or_default(),
-                ),
-            ))
-            .await
-            .aquiesce()
-        })
-    });
-
-    input.add_event_listener_with_callback("input", handler.as_ref().unchecked_ref())?;
-    handler.forget();
 
     Ok(())
 }
@@ -356,9 +286,10 @@ fn reset_editor() -> JsResult {
     query_id!("exposures")?.set_inner_html("");
     query_id!("preview")?.set_inner_html("");
 
-    let selector = query_id!("photoselect", HtmlInputElement)?;
-    selector.class_list().remove_1("hidden")?;
-    selector.set_value("");
+    query_id!("landing", HtmlInputElement)?
+        .class_list()
+        .remove_1("hidden")?;
+    query_id!("photoselect", HtmlInputElement)?.set_value("");
 
     wasm_bindgen_futures::spawn_local(async move {
         fs::clear_dir("").await.aquiesce();
@@ -368,230 +299,12 @@ fn reset_editor() -> JsResult {
     storage!()?.clear()
 }
 
-fn fill_roll_fields(data: &RollData) -> JsResult {
-    roll_input!(author, data)?;
-    roll_input!(make, data)?;
-    roll_input!(model, data)?;
-    roll_input!(iso, data)?;
-    roll_input!(description, data)?;
-
-    Ok(())
-}
-
-fn setup_roll_fields() -> JsResult {
-    let author_input = roll_placeholder!(author, "Author")?;
-    let make_input = roll_placeholder!(make, "Camera Brand")?;
-    let model_input = roll_placeholder!(model, "Camera Model")?;
-    let iso_input = roll_placeholder!(iso, "ISO")?;
-    let description_input = roll_placeholder!(description, "Film type")?;
-
-    set_roll_handler(UIRollUpdate::Author, &author_input)?;
-    set_roll_handler(UIRollUpdate::Make, &make_input)?;
-    set_roll_handler(UIRollUpdate::Model, &model_input)?;
-    set_roll_handler(UIRollUpdate::Iso, &iso_input)?;
-    set_roll_handler(UIRollUpdate::Film, &description_input)?;
-
-    ROTATE_LEFT
-        .try_with(|c| {
-            query_id!("rotate-left")?
-                .add_event_listener_with_callback("click", c.as_ref().unchecked_ref())
-        })
-        .map_err(Error::from)??;
-
-    RESET
-        .try_with(|c| {
-            query_id!("editor-reset")?
-                .add_event_listener_with_callback("click", c.as_ref().unchecked_ref())
-        })
-        .map_err(Error::from)??;
-
-    CLEAR
-        .try_with(|c| {
-            query_id!("editor-selection-clear")?
-                .add_event_listener_with_callback("click", c.as_ref().unchecked_ref())
-        })
-        .map_err(Error::from)??;
-
-    let selection_glob = Closure::<dyn Fn(Event)>::new(move |_| {
-        wasm_bindgen_futures::spawn_local(async move {
-            controller::update(Update::SelectionAll).await.aquiesce()
-        });
-    });
-    query_id!("editor-selection-glob")?
-        .add_event_listener_with_callback("click", selection_glob.as_ref().unchecked_ref())?;
-    selection_glob.forget();
-
-    let selection_invert = Closure::<dyn Fn(Event)>::new(move |_| {
-        wasm_bindgen_futures::spawn_local(async move {
-            controller::update(Update::SelectionInvert).await.aquiesce()
-        });
-    });
-    query_id!("editor-selection-invert")?
-        .add_event_listener_with_callback("click", selection_invert.as_ref().unchecked_ref())?;
-    selection_invert.forget();
-
-    let download_tse = Closure::<dyn Fn(Event)>::new(move |_| {
-        wasm_bindgen_futures::spawn_local(async move {
-            process_images().await.aquiesce();
-        });
-    });
-
-    query_id!("download")?
-        .add_event_listener_with_callback("click", download_tse.as_ref().unchecked_ref())?;
-    download_tse.forget();
-
-    Ok(())
-}
-
-fn create_row(index: u32, selected: bool) -> Result<(), Error> {
-    let table = query_selector!("table#exposures")?;
-
-    let row = el!("tr")?;
-    row.set_id(&format!("exposure-{index}"));
-    if selected {
-        row.class_list().add_1("selected")?;
-    }
-    let select = el!("td", HtmlElement)?;
-    select.set_id(&format!("exposure-select-{index}"));
-    select.style().set_property("display", "none")?;
-    let sspeed = el!("td")?;
-    sspeed.set_id(&format!("exposure-field-sspeed-{index}"));
-    let aperture = el!("td")?;
-    aperture.set_id(&format!("exposure-field-aperture-{index}"));
-    let lens = el!("td")?;
-    lens.set_id(&format!("exposure-field-lens-{index}"));
-    let comment = el!("td")?;
-    comment.set_id(&format!("exposure-field-comment-{index}"));
-    let date = el!("td")?;
-    date.set_id(&format!("exposure-field-date-{index}"));
-    let gps = el!("td")?;
-    gps.set_id(&format!("exposure-field-gps-{index}"));
-
-    let select_button = el!("input", HtmlInputElement)?;
-    select_button.set_attribute("type", "checkbox")?;
-    if selected {
-        select_button.set_attribute("checked", "checked")?;
-    }
-    select_button.set_id(&format!("exposure-input-select-{index}"));
-
-    let sspeed_input = el!("input")?;
-    sspeed_input.set_id(&format!("exposure-input-sspeed-{index}"));
-    sspeed_input.set_attribute("placeholder", "Shutter Speed")?;
-    let aperture_input = el!("input")?;
-    aperture_input.set_id(&format!("exposure-input-aperture-{index}"));
-    aperture_input.set_attribute("placeholder", "Aperture")?;
-    let lens_input = el!("input")?;
-    lens_input.set_id(&format!("exposure-input-lens-{index}"));
-    lens_input.set_attribute("placeholder", "Focal length")?;
-    let comment_input = el!("input")?;
-    comment_input.set_id(&format!("exposure-input-comment-{index}"));
-    comment_input.set_attribute("placeholder", "Title")?;
-    let date_input = el!("input")?;
-    date_input.set_id(&format!("exposure-input-date-{index}"));
-    date_input.set_attribute("type", "datetime-local")?;
-    date_input.set_attribute("step", "1")?;
-    let gps_input = el!("input")?;
-    gps_input.set_id(&format!("exposure-input-gps-{index}"));
-    gps_input.set_attribute("placeholder", "GPS coordinates")?;
-    let gps_select = el!("button")?;
-    gps_select.set_inner_html("Map");
-
-    set_exposure_handler(index, UIExposureUpdate::ShutterSpeed, &sspeed_input)?;
-    set_exposure_handler(index, UIExposureUpdate::Aperture, &aperture_input)?;
-    set_exposure_handler(index, UIExposureUpdate::Lens, &lens_input)?;
-    set_exposure_handler(index, UIExposureUpdate::Comment, &comment_input)?;
-    set_exposure_handler(index, UIExposureUpdate::Date, &date_input)?;
-    set_exposure_handler(index, UIExposureUpdate::Gps, &gps_input)?;
-
-    let select_action = Closure::<dyn Fn(_)>::new(move |e: web_sys::MouseEvent| {
-        wasm_bindgen_futures::spawn_local(async move {
-            controller::update(Update::SelectExposure(index, e.shift_key(), e.ctrl_key()))
-                .await
-                .aquiesce()
-        });
-    });
-    row.add_event_listener_with_callback("click", select_action.as_ref().unchecked_ref())?;
-    select_action.forget();
-
-    let coords_select =
-        Closure::<dyn Fn(Event) -> JsResult>::new(move |_| select_coordinates(index).js_error());
-    gps_select.add_event_listener_with_callback("click", coords_select.as_ref().unchecked_ref())?;
-    coords_select.forget();
-
-    select.append_with_node_1(&select_button)?;
-    sspeed.append_with_node_1(&sspeed_input)?;
-    aperture.append_with_node_1(&aperture_input)?;
-    lens.append_with_node_1(&lens_input)?;
-    comment.append_with_node_1(&comment_input)?;
-    date.append_with_node_1(&date_input)?;
-    gps.append_with_node_2(&gps_input, &gps_select)?;
-
-    row.append_with_node_6(&select, &sspeed, &aperture, &lens, &comment, &date)?;
-    row.append_with_node_1(&gps)?;
-    table.append_with_node_1(&row)?;
-
-    let image = el!("img")?;
-    image.set_id(&format!("exposure-{index}-preview"));
-    image.set_attribute("alt", &format!("E{}", index))?;
-    query_id!("preview")?.append_with_node_1(&image)?;
-
-    Ok(())
-}
-
 #[wasm_bindgen]
-pub async fn update_coords(index: u32, lat: f64, lon: f64) -> JsResult {
-    controller::update(Update::ExposureField(
-        index,
-        UIExposureUpdate::Gps(format!("{lat}, {lon}")),
-    ))
-    .await
+pub async fn update_coords(lat: f64, lon: f64) -> JsResult {
+    controller::update(Update::ExposureField(UIExposureUpdate::Gps(format!(
+        "{lat}, {lon}"
+    ))))
     .js_error()
-}
-
-fn select_coordinates(index: u32) -> Result<(), Error> {
-    let data: Data = serde_json::from_str(&storage!()?.clone().get_existing("data")?)?;
-
-    if let Some((lat, lon)) = data
-        .exposures
-        .get(&index)
-        .ok_or(Error::MissingKey("Failed to access exposure".into()))?
-        .gps
-    {
-        set_marker(lat, lon);
-    }
-
-    prompt_coords(index);
-
-    Ok(())
-}
-
-fn setup_drag_drop(photo_selector: &HtmlInputElement) -> JsResult {
-    let closure = Closure::<dyn Fn(_) -> JsResult>::new(move |event: InputEvent| -> JsResult {
-        let files = event_target!(event, HtmlInputElement)?
-            .webkit_entries()
-            .iter()
-            .map(|f| f.dyn_into::<web_sys::FileSystemFileEntry>())
-            .collect::<Result<Vec<_>, _>>()?;
-
-        wasm_bindgen_futures::spawn_local(async move {
-            setup_editor_from_files(&files).await.aquiesce();
-        });
-
-        Ok(())
-    });
-
-    photo_selector.add_event_listener_with_callback("change", closure.as_ref().unchecked_ref())?;
-    closure.forget();
-
-    Ok(())
-}
-
-fn disable_click(selector: &HtmlInputElement) -> JsResult {
-    INHIBIT
-        .try_with(|c| {
-            selector.add_event_listener_with_callback("click", c.as_ref().unchecked_ref())
-        })
-        .map_err(Error::from)?
 }
 
 fn set_image(data: JsValue) -> Result<(), Error> {
@@ -612,18 +325,14 @@ fn set_image(data: JsValue) -> Result<(), Error> {
 }
 
 async fn setup_editor_from_data(contents: Data) -> Result<(), Error> {
-    fill_roll_fields(&contents.roll)?;
-    let selection = controller::get_selection()?;
+    view::roll::fill_fields(&contents.roll)?;
 
     storage!()?.set_item("data", &serde_json::to_string(&contents)?)?;
-    let exposures = *contents.exposures.keys().max().unwrap_or(&MAX_EXPOSURES);
-    for index in 1..=exposures {
-        create_row(index, selection.contains(index)).aquiesce();
-    }
 
-    controller::overhaul_data(contents.clone())?;
+    view::preview::create(contents.exposures.len() as u32)?;
+    view::exposure::setup()?;
 
-    query_id!("photoselect")?.class_list().add_1("hidden")?;
+    query_id!("landing")?.class_list().add_1("hidden")?;
     query_id!("editor")?.class_list().remove_1("hidden")?;
 
     generate_thumbnails().await
@@ -657,27 +366,18 @@ async fn generate_thumbnails() -> Result<(), Error> {
 }
 
 #[wasm_bindgen]
-extern "C" {
-    fn set_marker(x: f64, y: f64);
-    fn prompt_coords(i: u32);
-}
-
-#[wasm_bindgen]
 pub fn setup() -> JsResult {
-    let selector = query_id!("photoselect", HtmlInputElement)?;
-    disable_click(&selector)?;
-    setup_drag_drop(&selector)?;
-    setup_roll_fields()?;
+    view::preview::setup()?;
+    view::landing::setup()?;
+    view::roll::setup()?;
 
-    wasm_bindgen_futures::spawn_local(
-        async move { controller::handle_progress().await.aquiesce() },
-    );
+    wasm_bindgen_futures::spawn_local(async { controller::handle_progress().await.aquiesce() });
 
     if let Some(data) = storage!()?.get_item("data")? {
-        let data: Data = serde_json::from_str(&data).map_err(|e| format!("{e}"))?;
-        wasm_bindgen_futures::spawn_local(async move {
-            setup_editor_from_data(data).await.aquiesce();
-        });
+        let data: Data = serde_json::from_str(&data).map_err(|e| e.to_string())?;
+        wasm_bindgen_futures::spawn_local(
+            async move { setup_editor_from_data(data).await.aquiesce() },
+        );
     }
 
     // Listen for keypresses and handle them accordingly
@@ -688,10 +388,7 @@ pub fn setup() -> JsResult {
         })
         .map_err(Error::from)??;
 
-    Ok(())
-}
+    wasm_bindgen_futures::spawn_local(async { view::landing::landing_stats().await.aquiesce() });
 
-#[wasm_bindgen]
-pub fn shared_memory() -> wasm_bindgen::JsValue {
-    wasm_bindgen::memory()
+    Ok(())
 }

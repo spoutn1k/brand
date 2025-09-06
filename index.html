@@ -1,39 +1,107 @@
 <html>
-  <head>
-    <link data-trunk rel="rust" data-bin=brand  data-wasm-opt="4">
-    <link data-trunk rel="scss" href="./index.scss">
-    <link data-trunk rel="copy-file" href="./src/worker.js">
-    <link data-trunk rel="inline" href="./src/index.js">
-    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
-    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-  </head>
-  <body>
-    <input id=photoselect  type=file  data-multiple-caption="" multiple>
-    <div id=editor  class=hidden>
-      <div id=preview></div>
-      <div id=header>
-        <div id=roll>
-          <input id=roll-author-input>
-          <input id=roll-make-input>
-          <input id=roll-model-input>
-          <input id=roll-iso-input>
-          <input id=roll-description-input>
-          <button id=rotate-left>Rotate</button>
-        </div>
-        <div id=options>
-          <button id=editor-reset>Reset</button>
-          <button id=editor-selection-clear>Clear selection</button>
-          <button id=editor-selection-glob>Select all</button>
-          <button id=editor-selection-invert>Invert selection</button>
-          <button id=download>Download</button>
-        </div>
-      </div>
-      <table id=exposures></table>
-      <div id=notifications>
-        <div id=thumbnails></div>
-        <div id=processing></div>
+
+<head>
+  <link data-trunk rel="rust" data-bin=brand data-wasm-opt="4">
+  <link data-trunk rel="scss" href="./index.scss">
+  <link data-trunk rel="copy-file" href="./src/worker.js">
+  <link data-trunk rel="inline" href="./src/index.js">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+</head>
+
+<body>
+  <div id=landing>
+    <input id=photoselect type=file data-multiple-caption="" multiple>
+    <div id=nerd-data>
+      <ul>
+        <li><span id=nerd-files></span><button id=clear-storage>Clear</button></li>
+        <li id=nerd-threads></li>
+      </ul>
+    </div>
+  </div>
+  <div id=editor class=hidden>
+    <div id=preview>
+      <div id=selection-options>
+        <button id="selection-all">ALL</button>
+        <button id="selection-invert">INVERT</button>
+        <button id="selection-clear">CLEAR</button>
       </div>
     </div>
-    <div id="map" class=hidden></div>
-  </body>
+    <div id=header>
+      <div id=options>
+        <button id=editor-reset>Reset</button>
+        <button id=editor-selection-clear>Clear selection</button>
+        <button id=editor-selection-glob>Select all</button>
+        <button id=editor-selection-invert>Invert selection</button>
+        <button id=download>Download</button>
+      </div>
+    </div>
+    <div id=exposures>
+      <div id=roll>
+        <table id=roll-fields>
+          <tr id=roll-author>
+            <td><label for=roll-author-input>Author</label></td>
+            <td><input id=roll-author-input></td>
+          </tr>
+          <tr id=roll-make>
+            <td><label for=roll-make-input>Make</label></td>
+            <td><input id=roll-make-input></td>
+          </tr>
+          <tr id=roll-model>
+            <td><label for=roll-model-input>Model</label></td>
+            <td><input id=roll-model-input></td>
+          </tr>
+          <tr id=roll-iso>
+            <td><label for=roll-iso-input>ISO</label></td>
+            <td><input id=roll-iso-input></td>
+          </tr>
+          <tr id=roll-description>
+            <td><label for=roll-description-input>Film</label></td>
+            <td><input id=roll-description-input></td>
+          </tr>
+        </table>
+      </div>
+      <div id=exposure-specific class="hidden">
+        <div id=exposures-title></div>
+        <div id=exposures-options>
+          <button id=rotate-left>Rotate left</button>
+          <button id=rotate-right>Rotate right</button>
+        </div>
+        <table id=exposures-fields>
+          <tr id=exposures-sspeed>
+            <td><label for=exposures-sspeed-input>Shutter Speed</label></td>
+            <td><input id=exposures-sspeed-input></td>
+          </tr>
+          <tr id=exposures-aperture>
+            <td><label for=exposures-aperture-input>Aperture</label></td>
+            <td><input id=exposures-aperture-input></td>
+          </tr>
+          <tr id=exposures-lens>
+            <td><label for=exposures-lens-input>Lens</label></td>
+            <td><input id=exposures-lens-input></td>
+          </tr>
+          <tr id=exposures-comment>
+            <td><label for=exposures-comment-input>Comment</label></td>
+            <td><input id=exposures-comment-input></td>
+          </tr>
+          <tr id=exposures-date>
+            <td><label for=exposures-date-input>Date</label></td>
+            <td><input id=exposures-date-input type="datetime-local" step="1"></td>
+          </tr>
+          <tr id=exposures-gps>
+            <td><label for=exposures-gps-input>GPS</label></td>
+            <td><input id=exposures-gps-input></td>
+            <td><button id=exposures-gps-button>Map</button></td>
+          </tr>
+        </table>
+      </div>
+    </div>
+    <div id=notifications>
+      <div id=thumbnails></div>
+      <div id=processing></div>
+    </div>
+  </div>
+  <div id="map" class=hidden></div>
+</body>
+
 </html>

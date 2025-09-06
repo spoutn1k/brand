@@ -1,4 +1,4 @@
-use crate::{controller, models::TseParseError};
+use crate::controller;
 use std::thread::AccessError;
 use wasm_bindgen::JsValue;
 
@@ -11,7 +11,7 @@ pub enum Error {
     #[error("JS failure: {0}")]
     Js(String),
     #[error(transparent)]
-    Serde(#[from] serde_json::Error),
+    SerdeJson(#[from] serde_json::Error),
     #[error(transparent)]
     SerdeWasm(#[from] serde_wasm_bindgen::Error),
     #[error("Missing key from storage: {0}")]
@@ -20,8 +20,8 @@ pub enum Error {
     Image(#[from] image::ImageError),
     #[error(transparent)]
     ParseInt(#[from] std::num::ParseIntError),
-    #[error(transparent)]
-    ParseTse(#[from] TseParseError),
+    #[error("Failed to parse TSE file")]
+    ParseTse,
     #[error(transparent)]
     Logging(#[from] log::SetLoggerError),
     #[error(transparent)]
@@ -48,6 +48,10 @@ pub enum Error {
     SelectorFailed(String),
     #[error("No target for event !")]
     NoTarget,
+    #[error(transparent)]
+    ChronoParse(#[from] chrono::ParseError),
+    #[error("Bad GPS element format: {0}")]
+    GpsParse(String),
 }
 
 impl From<JsValue> for Error {

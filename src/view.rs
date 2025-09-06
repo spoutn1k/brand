@@ -1,5 +1,9 @@
 pub mod editor {
-    use crate::{Error, QueryExt};
+    use crate::{
+        Aquiesce, Error, QueryExt, fs, storage,
+        view::{landing, preview},
+    };
+    use web_sys::HtmlInputElement;
 
     pub fn hide() -> Result<(), Error> {
         "editor".query_id()?.class_list().add_1("hidden")?;
@@ -9,6 +13,25 @@ pub mod editor {
 
     pub fn show() -> Result<(), Error> {
         "editor".query_id()?.class_list().remove_1("hidden")?;
+
+        Ok(())
+    }
+
+    pub fn reset() -> Result<(), Error> {
+        preview::reset()?;
+
+        "photoselect"
+            .query_id_into::<HtmlInputElement>()?
+            .set_value("");
+
+        wasm_bindgen_futures::spawn_local(async move {
+            fs::clear_dir("").await.aquiesce();
+        });
+
+        storage()?.clear()?;
+
+        landing::show()?;
+        hide()?;
 
         Ok(())
     }
@@ -150,12 +173,16 @@ pub mod preview {
             image.set_id(&format!("exposure-{index}-preview"));
             image.set_attribute("alt", &format!("E{}", index))?;
             image.set_attribute("data-exposure-index", &index.to_string())?;
+
             CLICK_EXPOSURE
                 .try_with(|h| {
                     image.add_event_listener_with_callback("click", h.as_ref().unchecked_ref())
                 })
                 .map_err(Error::from)??;
-            "preview".query_id()?.append_with_node_1(&image)?;
+
+            "preview-thumbnails"
+                .query_id()?
+                .append_with_node_1(&image)?;
         }
 
         Ok(())
@@ -185,6 +212,12 @@ pub mod preview {
                     .add_event_listener_with_callback("click", c.as_ref().unchecked_ref())
             })
             .map_err(Error::from)??;
+
+        Ok(())
+    }
+
+    pub fn reset() -> Result<(), Error> {
+        "preview-thumbnails".query_id()?.set_inner_html("");
 
         Ok(())
     }
@@ -334,13 +367,14 @@ pub mod roll {
         Aquiesce, Error, EventTargetExt, JsError, JsResult, QueryExt,
         controller::{self, UIRollUpdate, Update},
         models::RollData,
+        view,
     };
     use wasm_bindgen::prelude::*;
     use web_sys::{Event, HtmlInputElement};
 
     thread_local! {
-    static RESET_EDITOR: Closure<dyn Fn(Event) -> JsResult> =
-        Closure::new(|_| crate::reset_editor());
+    static RESET_EDITOR: Closure<dyn Fn(Event)> =
+        Closure::new(|_| view::editor::reset().aquiesce());
 
     static EXPORT: Closure<dyn Fn(Event)> = Closure::new(|_| {
         wasm_bindgen_futures::spawn_local(async {

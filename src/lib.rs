@@ -136,7 +136,6 @@ async fn import_tse(entry: &FileSystemFileEntry) -> Result<(), Error> {
             let data = models::read_tse(Cursor::new(raw))?;
 
             storage()?.set_item("data", &serde_json::to_string(&data).unwrap())?;
-            //controller::overhaul_data(data).js_error()
 
             Ok(())
         });
@@ -280,22 +279,6 @@ async fn setup_editor_from_files(files: &[FileSystemFileEntry]) -> Result<(), Er
     generate_thumbnails().await?;
 
     Ok(())
-}
-
-fn reset_editor() -> JsResult {
-    "preview".query_id()?.set_inner_html("");
-
-    view::landing::show()?;
-    "photoselect"
-        .query_id_into::<HtmlInputElement>()?
-        .set_value("");
-
-    wasm_bindgen_futures::spawn_local(async move {
-        fs::clear_dir("").await.aquiesce();
-    });
-
-    view::editor::show()?;
-    storage()?.clear()
 }
 
 #[wasm_bindgen]

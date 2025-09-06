@@ -283,10 +283,9 @@ async fn setup_editor_from_files(files: &[FileSystemFileEntry]) -> Result<(), Er
 }
 
 fn reset_editor() -> JsResult {
-    "exposures".query_id()?.set_inner_html("");
     "preview".query_id()?.set_inner_html("");
 
-    "landing".query_id()?.class_list().remove_1("hidden")?;
+    view::landing::show()?;
     "photoselect"
         .query_id_into::<HtmlInputElement>()?
         .set_value("");
@@ -295,7 +294,7 @@ fn reset_editor() -> JsResult {
         fs::clear_dir("").await.aquiesce();
     });
 
-    "editor".query_id()?.class_list().add_1("hidden")?;
+    view::editor::show()?;
     storage()?.clear()
 }
 
@@ -333,8 +332,8 @@ async fn setup_editor_from_data(contents: Data) -> Result<(), Error> {
     view::preview::create(contents.exposures.len() as u32)?;
     view::exposure::setup()?;
 
-    "landing".query_id()?.class_list().add_1("hidden")?;
-    "editor".query_id()?.class_list().remove_1("hidden")?;
+    view::landing::hide()?;
+    view::editor::show()?;
 
     generate_thumbnails().await
 }

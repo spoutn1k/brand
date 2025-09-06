@@ -1,3 +1,19 @@
+pub mod editor {
+    use crate::{Error, QueryExt};
+
+    pub fn hide() -> Result<(), Error> {
+        "editor".query_id()?.class_list().add_1("hidden")?;
+
+        Ok(())
+    }
+
+    pub fn show() -> Result<(), Error> {
+        "editor".query_id()?.class_list().remove_1("hidden")?;
+
+        Ok(())
+    }
+}
+
 pub mod landing {
     use crate::{Error, EventTargetExt, JsResult, QueryExt, error::Aquiesce, fs};
     use wasm_bindgen::prelude::*;
@@ -66,6 +82,18 @@ pub mod landing {
                     .add_event_listener_with_callback("click", handler.as_ref().unchecked_ref())
             })
             .map_err(Error::from)??;
+
+        Ok(())
+    }
+
+    pub fn hide() -> Result<(), Error> {
+        "landing".query_id()?.class_list().add_1("hidden")?;
+
+        Ok(())
+    }
+
+    pub fn show() -> Result<(), Error> {
+        "landing".query_id()?.class_list().remove_1("hidden")?;
 
         Ok(())
     }

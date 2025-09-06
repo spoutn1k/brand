@@ -260,8 +260,14 @@ fn manage_selection(operation: Update) -> Result<(), Error> {
     let data: Meta = serde_json::from_str(&storage.get_existing("metadata")?)?;
     let all: Selection = data.into_values().map(|m| m.index).collect();
 
+    let inverted: Selection = all
+        .items()
+        .into_iter()
+        .filter(|i| !selection.contains(*i))
+        .collect();
+
     match operation {
-        Update::SelectionInvert => selection.invert(),
+        Update::SelectionInvert => selection = inverted,
         Update::SelectionClear => selection.clear(),
         Update::SelectionAll => selection = all,
         _ => unreachable!(),

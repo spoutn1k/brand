@@ -3,16 +3,13 @@ pub mod controller;
 mod error;
 pub mod fs;
 pub mod gps;
+mod helpers;
 pub mod image_management;
-pub mod macros;
 pub mod models;
 pub mod view;
 pub mod worker;
 
-use crate::{
-    macros::{SessionStorageExt, body, document, el, query_id, storage},
-    models::{Data, FileKind, FileMetadata, Meta, Orientation, WorkerMessage},
-};
+use crate::models::{Data, FileKind, FileMetadata, Meta, Orientation, WorkerMessage};
 use controller::{UIExposureUpdate, Update};
 use image::ImageFormat;
 use js_sys::{Array, Uint8Array};
@@ -27,6 +24,9 @@ use web_sys::{
 };
 
 pub use error::{Aquiesce, Error, JsError, JsResult};
+pub use helpers::{
+    AsHtmlExt, EventTargetExt, QueryExt, SessionStorageExt, body, document, storage,
+};
 
 pub mod bindings {
     use wasm_bindgen::prelude::wasm_bindgen;
@@ -48,7 +48,7 @@ static KEY_HANDLER: Closure<dyn Fn(KeyboardEvent)> = Closure::new(|e: KeyboardEv
 
 async fn process_images() -> Result<(), Error> {
     let data: Meta = serde_json::from_str(
-        &storage!()?
+        &storage()?
             .get_item("metadata")?
             .ok_or(Error::MissingKey("metadata".into()))?,
     )?;
@@ -104,14 +104,14 @@ fn download_buffer(buffer: &[u8], filename: &str, mime_type: &str) -> Result<(),
     let blob = Blob::new_with_u8_array_sequence_and_options(&array, &props)?;
 
     let url = web_sys::Url::create_object_url_with_blob(&blob)?;
-    let element = el!("a", HtmlElement)?;
+    let element = "a".as_html_into::<HtmlElement>()?;
     element.set_attribute("href", &url)?;
     element.set_attribute("download", filename)?;
     element.style().set_property("display", "none")?;
 
-    body!()?.append_with_node_1(&element)?;
+    body()?.append_with_node_1(&element)?;
     element.click();
-    body!()?.remove_child(&element)?;
+    body()?.remove_child(&element)?;
 
     web_sys::Url::revoke_object_url(&url)?;
 
@@ -135,7 +135,7 @@ async fn import_tse(entry: &FileSystemFileEntry) -> Result<(), Error> {
             let raw = r.result()?.as_string().unwrap_or_default();
             let data = models::read_tse(Cursor::new(raw))?;
 
-            storage!()?.set_item("data", &serde_json::to_string(&data).unwrap())?;
+            storage()?.set_item("data", &serde_json::to_string(&data).unwrap())?;
             //controller::overhaul_data(data).js_error()
 
             Ok(())
@@ -200,7 +200,7 @@ async fn setup_editor_from_files(files: &[FileSystemFileEntry]) -> Result<(), Er
         images.push(i);
     }
 
-    storage!()?.set_item(
+    storage()?.set_item(
         "metadata",
         &serde_json::to_string(&metadata.iter().cloned().collect::<Meta>())?,
     )?;
@@ -209,7 +209,7 @@ async fn setup_editor_from_files(files: &[FileSystemFileEntry]) -> Result<(), Er
     view::preview::create(images.len() as u32)?;
     view::exposure::setup()?;
 
-    storage!()?.set_item(
+    storage()?.set_item(
         "data",
         &serde_json::to_string(&Data::with_count(images.len() as u32))?,
     )?;
@@ -274,8 +274,8 @@ async fn setup_editor_from_files(files: &[FileSystemFileEntry]) -> Result<(), Er
 
     log::debug!("Imported files in {now}s");
 
-    query_id!("landing")?.class_list().add_1("hidden")?;
-    query_id!("editor")?.class_list().remove_1("hidden")?;
+    "landing".query_id()?.class_list().add_1("hidden")?;
+    "editor".query_id()?.class_list().remove_1("hidden")?;
 
     generate_thumbnails().await?;
 
@@ -283,20 +283,20 @@ async fn setup_editor_from_files(files: &[FileSystemFileEntry]) -> Result<(), Er
 }
 
 fn reset_editor() -> JsResult {
-    query_id!("exposures")?.set_inner_html("");
-    query_id!("preview")?.set_inner_html("");
+    "exposures".query_id()?.set_inner_html("");
+    "preview".query_id()?.set_inner_html("");
 
-    query_id!("landing", HtmlInputElement)?
-        .class_list()
-        .remove_1("hidden")?;
-    query_id!("photoselect", HtmlInputElement)?.set_value("");
+    "landing".query_id()?.class_list().remove_1("hidden")?;
+    "photoselect"
+        .query_id_into::<HtmlInputElement>()?
+        .set_value("");
 
     wasm_bindgen_futures::spawn_local(async move {
         fs::clear_dir("").await.aquiesce();
     });
 
-    query_id!("editor")?.class_list().add_1("hidden")?;
-    storage!()?.clear()
+    "editor".query_id()?.class_list().add_1("hidden")?;
+    storage()?.clear()
 }
 
 #[wasm_bindgen]
@@ -311,7 +311,8 @@ fn set_image(data: JsValue) -> Result<(), Error> {
     let models::WorkerCompressionAnswer(index, base64): models::WorkerCompressionAnswer =
         serde_wasm_bindgen::from_value(data)?;
 
-    query_id!(&format!("exposure-{index}-preview"))?
+    format!("exposure-{index}-preview")
+        .query_id()?
         .set_attribute("src", &format!("data:image/jpeg;base64, {base64}"))?;
 
     wasm_bindgen_futures::spawn_local(async move {
@@ -327,19 +328,19 @@ fn set_image(data: JsValue) -> Result<(), Error> {
 async fn setup_editor_from_data(contents: Data) -> Result<(), Error> {
     view::roll::fill_fields(&contents.roll)?;
 
-    storage!()?.set_item("data", &serde_json::to_string(&contents)?)?;
+    storage()?.set_item("data", &serde_json::to_string(&contents)?)?;
 
     view::preview::create(contents.exposures.len() as u32)?;
     view::exposure::setup()?;
 
-    query_id!("landing")?.class_list().add_1("hidden")?;
-    query_id!("editor")?.class_list().remove_1("hidden")?;
+    "landing".query_id()?.class_list().add_1("hidden")?;
+    "editor".query_id()?.class_list().remove_1("hidden")?;
 
     generate_thumbnails().await
 }
 
 async fn generate_thumbnails() -> Result<(), Error> {
-    let data: Meta = serde_json::from_str(&storage!()?.get_existing("metadata")?)?;
+    let data: Meta = serde_json::from_str(&storage()?.get_existing("metadata")?)?;
     let tasks: Vec<_> = data
         .into_values()
         .map(models::WorkerMessage::GenerateThumbnail)
@@ -373,7 +374,7 @@ pub fn setup() -> JsResult {
 
     wasm_bindgen_futures::spawn_local(async { controller::handle_progress().await.aquiesce() });
 
-    if let Some(data) = storage!()?.get_item("data")? {
+    if let Some(data) = storage()?.get_item("data")? {
         let data: Data = serde_json::from_str(&data).map_err(|e| e.to_string())?;
         wasm_bindgen_futures::spawn_local(
             async move { setup_editor_from_data(data).await.aquiesce() },
@@ -383,7 +384,7 @@ pub fn setup() -> JsResult {
     // Listen for keypresses and handle them accordingly
     KEY_HANDLER
         .try_with(|handler| {
-            document!()?
+            document()?
                 .add_event_listener_with_callback("keydown", handler.as_ref().unchecked_ref())
         })
         .map_err(Error::from)??;

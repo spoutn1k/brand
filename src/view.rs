@@ -1,17 +1,12 @@
 pub mod landing {
-    use crate::{
-        Error, JsResult,
-        error::Aquiesce,
-        fs,
-        macros::{event_target, query_id},
-    };
+    use crate::{Error, EventTargetExt, JsResult, QueryExt, error::Aquiesce, fs};
     use wasm_bindgen::prelude::*;
     use web_sys::{Event, FileSystemFileEntry, HtmlInputElement, InputEvent};
 
     thread_local! {
     static DRAG_FILES: Closure<dyn Fn(InputEvent) -> JsResult> =
         Closure::new(move |event: InputEvent| -> JsResult {
-            let files = event_target!(event, HtmlInputElement)?
+            let files = event.target_into::<HtmlInputElement>()?
                 .webkit_entries()
                 .iter()
                 .map(|f| f.unchecked_into::<FileSystemFileEntry>())
@@ -31,7 +26,8 @@ pub mod landing {
     pub async fn landing_stats() -> Result<(), Error> {
         let count = fs::file_count().await;
 
-        query_id!("nerd-files")?
+        "nerd-files"
+            .query_id()?
             .set_text_content(Some(&format!("Filesystem contains {count} files")));
 
         let count = web_sys::window()
@@ -39,7 +35,8 @@ pub mod landing {
             .navigator()
             .hardware_concurrency();
 
-        query_id!("nerd-threads")?
+        "nerd-threads"
+            .query_id()?
             .set_text_content(Some(&format!("Browser can access {count} threads")));
 
         Ok(())
@@ -48,21 +45,24 @@ pub mod landing {
     pub fn setup() -> Result<(), Error> {
         DRAG_FILES
             .try_with(|h| {
-                query_id!("photoselect", HtmlInputElement)?
+                "photoselect"
+                    .query_id_into::<HtmlInputElement>()?
                     .add_event_listener_with_callback("change", h.as_ref().unchecked_ref())
             })
             .map_err(Error::from)??;
 
         INHIBIT
             .try_with(|c| {
-                query_id!("photoselect", HtmlInputElement)?
+                "photoselect"
+                    .query_id_into::<HtmlInputElement>()?
                     .add_event_listener_with_callback("click", c.as_ref().unchecked_ref())
             })
             .map_err(Error::from)??;
 
         CLEAR_STORAGE
             .try_with(|handler| {
-                query_id!("clear-storage")?
+                "clear-storage"
+                    .query_id()?
                     .add_event_listener_with_callback("click", handler.as_ref().unchecked_ref())
             })
             .map_err(Error::from)??;
@@ -73,9 +73,7 @@ pub mod landing {
 
 pub mod preview {
     use crate::{
-        Aquiesce, Error, controller,
-        controller::Update,
-        macros::{el, event_target, query_id},
+        Aquiesce, AsHtmlExt, Error, EventTargetExt, QueryExt, controller, controller::Update,
     };
     use wasm_bindgen::prelude::*;
     use web_sys::{Event, HtmlElement, MouseEvent};
@@ -95,16 +93,16 @@ pub mod preview {
 
     fn handle_exposure_click(event: MouseEvent) {
         fn inner(event: MouseEvent) -> Result<(), Error> {
-            let target = event_target!(event, HtmlElement)?;
+            let shift = event.shift_key();
+            let ctrl = event.ctrl_key();
+            let meta = event.meta_key();
+
+            let target = event.target_into::<HtmlElement>()?;
 
             let data = target
                 .get_attribute("data-exposure-index")
                 .ok_or(Error::MissingKey("img does not contain index".into()))?;
             let index = data.parse::<u32>()?;
-
-            let shift = event.shift_key();
-            let ctrl = event.ctrl_key();
-            let meta = event.meta_key();
 
             log::info!(
                 "Clicked on exposure {index} with shift: {shift}, ctrl: {ctrl}, meta: {meta}"
@@ -120,7 +118,7 @@ pub mod preview {
 
     pub fn create(count: u32) -> Result<(), Error> {
         for index in 1..=count {
-            let image = el!("img")?;
+            let image = "img".as_html()?;
             image.set_id(&format!("exposure-{index}-preview"));
             image.set_attribute("alt", &format!("E{}", index))?;
             image.set_attribute("data-exposure-index", &index.to_string())?;
@@ -129,7 +127,7 @@ pub mod preview {
                     image.add_event_listener_with_callback("click", h.as_ref().unchecked_ref())
                 })
                 .map_err(Error::from)??;
-            query_id!("preview")?.append_with_node_1(&image)?;
+            "preview".query_id()?.append_with_node_1(&image)?;
         }
 
         Ok(())
@@ -138,21 +136,24 @@ pub mod preview {
     pub fn setup() -> Result<(), Error> {
         SELECTION_CLEAR
             .try_with(|c| {
-                query_id!("selection-clear")?
+                "selection-clear"
+                    .query_id()?
                     .add_event_listener_with_callback("click", c.as_ref().unchecked_ref())
             })
             .map_err(Error::from)??;
 
         SELECTION_ALL
             .try_with(|c| {
-                query_id!("selection-all")?
+                "selection-all"
+                    .query_id()?
                     .add_event_listener_with_callback("click", c.as_ref().unchecked_ref())
             })
             .map_err(Error::from)??;
 
         SELECTION_INVERT
             .try_with(|c| {
-                query_id!("selection-invert")?
+                "selection-invert"
+                    .query_id()?
                     .add_event_listener_with_callback("click", c.as_ref().unchecked_ref())
             })
             .map_err(Error::from)??;
@@ -163,9 +164,8 @@ pub mod preview {
 
 pub mod exposure {
     use crate::{
-        Aquiesce, Error, JsError, JsResult, bindings,
+        Aquiesce, Error, EventTargetExt, JsError, JsResult, QueryExt, bindings,
         controller::{self, UIExposureUpdate, Update},
-        macros::{event_target, query_id, query_selector},
         models::{self, HTML_INPUT_TIMESTAMP_FORMAT},
     };
     use wasm_bindgen::prelude::*;
@@ -186,9 +186,8 @@ pub mod exposure {
         input: &web_sys::Element,
     ) -> JsResult {
         let handler = Closure::<dyn Fn(_) -> JsResult>::new(move |event: Event| -> JsResult {
-            log::info!("clicked");
             controller::update(Update::ExposureField(field(
-                event_target!(event, HtmlInputElement)?.value(),
+                event.target_into::<HtmlInputElement>()?.value(),
             )))
             .js_error()
         });
@@ -200,12 +199,12 @@ pub mod exposure {
     }
 
     pub fn setup() -> Result<(), Error> {
-        let sspeed_input = query_selector!("input#exposures-sspeed-input")?;
-        let aperture_input = query_selector!("input#exposures-aperture-input")?;
-        let lens_input = query_selector!("input#exposures-lens-input")?;
-        let comment_input = query_selector!("input#exposures-comment-input")?;
-        let date_input = query_selector!("input#exposures-date-input")?;
-        let gps_input = query_selector!("input#exposures-gps-input")?;
+        let sspeed_input = "input#exposures-sspeed-input".query_selector()?;
+        let aperture_input = "input#exposures-aperture-input".query_selector()?;
+        let lens_input = "input#exposures-lens-input".query_selector()?;
+        let comment_input = "input#exposures-comment-input".query_selector()?;
+        let date_input = "input#exposures-date-input".query_selector()?;
+        let gps_input = "input#exposures-gps-input".query_selector()?;
 
         set_handler(UIExposureUpdate::ShutterSpeed, &sspeed_input)?;
         set_handler(UIExposureUpdate::Aperture, &aperture_input)?;
@@ -216,21 +215,24 @@ pub mod exposure {
 
         PROMPT_GPS
             .try_with(|c| {
-                query_selector!("button#exposures-gps-button")?
+                "button#exposures-gps-button"
+                    .query_selector()?
                     .add_event_listener_with_callback("click", c.as_ref().unchecked_ref())
             })
             .map_err(Error::from)??;
 
         ROTATE_LEFT
             .try_with(|c| {
-                query_id!("rotate-left")?
+                "rotate-left"
+                    .query_id()?
                     .add_event_listener_with_callback("click", c.as_ref().unchecked_ref())
             })
             .map_err(Error::from)??;
 
         ROTATE_RIGHT
             .try_with(|c| {
-                query_id!("rotate-right")?
+                "rotate-right"
+                    .query_id()?
                     .add_event_listener_with_callback("click", c.as_ref().unchecked_ref())
             })
             .map_err(Error::from)??;
@@ -242,36 +244,47 @@ pub mod exposure {
         title: String,
         contents: &models::ExposureSpecificData,
     ) -> Result<(), Error> {
-        query_selector!("div#exposures-title")?.set_text_content(Some(title.as_str()));
+        "div#exposures-title"
+            .query_selector()?
+            .set_text_content(Some(title.as_str()));
 
-        query_id!("exposures-sspeed-input", HtmlInputElement)?
+        "exposures-sspeed-input"
+            .query_id_into::<HtmlInputElement>()?
             .set_value(contents.sspeed.as_deref().unwrap_or_default());
-        query_id!("exposures-aperture-input", HtmlInputElement)?
+        "exposures-aperture-input"
+            .query_id_into::<HtmlInputElement>()?
             .set_value(contents.aperture.as_deref().unwrap_or_default());
-        query_id!("exposures-lens-input", HtmlInputElement)?
+        "exposures-lens-input"
+            .query_id_into::<HtmlInputElement>()?
             .set_value(contents.lens.as_deref().unwrap_or_default());
-        query_id!("exposures-comment-input", HtmlInputElement)?
+        "exposures-comment-input"
+            .query_id_into::<HtmlInputElement>()?
             .set_value(contents.comment.as_deref().unwrap_or_default());
-        query_id!("exposures-date-input", HtmlInputElement)?.set_value(
-            contents
-                .date
-                .map(|d| d.format(HTML_INPUT_TIMESTAMP_FORMAT).to_string())
-                .as_deref()
-                .unwrap_or_default(),
-        );
-        query_id!("exposures-gps-input", HtmlInputElement)?.set_value(
-            contents
-                .gps
-                .map(|(la, lo)| format!("{la}, {lo}"))
-                .as_deref()
-                .unwrap_or_default(),
-        );
+        "exposures-date-input"
+            .query_id_into::<HtmlInputElement>()?
+            .set_value(
+                contents
+                    .date
+                    .map(|d| d.format(HTML_INPUT_TIMESTAMP_FORMAT).to_string())
+                    .as_deref()
+                    .unwrap_or_default(),
+            );
+        "exposures-gps-input"
+            .query_id_into::<HtmlInputElement>()?
+            .set_value(
+                contents
+                    .gps
+                    .map(|(la, lo)| format!("{la}, {lo}"))
+                    .as_deref()
+                    .unwrap_or_default(),
+            );
 
         Ok(())
     }
 
     pub fn hide() -> Result<(), Error> {
-        query_selector!("div#exposure-specific")?
+        "div#exposure-specific"
+            .query_selector()?
             .class_list()
             .add_1("hidden")?;
 
@@ -279,7 +292,8 @@ pub mod exposure {
     }
 
     pub fn show() -> Result<(), Error> {
-        query_selector!("div#exposure-specific")?
+        "div#exposure-specific"
+            .query_selector()?
             .class_list()
             .remove_1("hidden")?;
 
@@ -289,9 +303,8 @@ pub mod exposure {
 
 pub mod roll {
     use crate::{
-        Aquiesce, Error, JsError, JsResult,
+        Aquiesce, Error, EventTargetExt, JsError, JsResult, QueryExt,
         controller::{self, UIRollUpdate, Update},
-        macros::{event_target, query_id, query_selector},
         models::RollData,
     };
     use wasm_bindgen::prelude::*;
@@ -314,7 +327,7 @@ pub mod roll {
     ) -> JsResult {
         let handler = Closure::<dyn Fn(Event) -> JsResult>::new(move |event: Event| -> JsResult {
             controller::update(Update::Roll(field(
-                event_target!(event, HtmlInputElement)?.value(),
+                event.target_into::<HtmlInputElement>()?.value(),
             )))
             .js_error()
         });
@@ -326,11 +339,11 @@ pub mod roll {
     }
 
     pub fn setup() -> Result<(), Error> {
-        let author_input = query_id!("roll-author-input")?;
-        let make_input = query_id!("roll-make-input")?;
-        let model_input = query_id!("roll-model-input")?;
-        let iso_input = query_id!("roll-iso-input")?;
-        let description_input = query_id!("roll-description-input")?;
+        let author_input = "roll-author-input".query_id()?;
+        let make_input = "roll-make-input".query_id()?;
+        let model_input = "roll-model-input".query_id()?;
+        let iso_input = "roll-iso-input".query_id()?;
+        let description_input = "roll-description-input".query_id()?;
 
         set_handler(UIRollUpdate::Author, &author_input)?;
         set_handler(UIRollUpdate::Make, &make_input)?;
@@ -340,14 +353,16 @@ pub mod roll {
 
         RESET_EDITOR
             .try_with(|c| {
-                query_id!("editor-reset")?
+                "editor-reset"
+                    .query_id()?
                     .add_event_listener_with_callback("click", c.as_ref().unchecked_ref())
             })
             .map_err(Error::from)??;
 
         EXPORT
             .try_with(|h| {
-                query_id!("download")?
+                "download"
+                    .query_id()?
                     .add_event_listener_with_callback("click", h.as_ref().unchecked_ref())
             })
             .map_err(Error::from)??;
@@ -356,32 +371,38 @@ pub mod roll {
     }
 
     pub fn fill_fields(data: &RollData) -> JsResult {
-        query_id!("roll-author-input", web_sys::HtmlInputElement)?
+        "roll-author-input"
+            .query_id_into::<HtmlInputElement>()?
             .set_value(data.author.as_deref().unwrap_or_default());
 
-        query_id!("roll-make-input", web_sys::HtmlInputElement)?
+        "roll-make-input"
+            .query_id_into::<HtmlInputElement>()?
             .set_value(data.make.as_deref().unwrap_or_default());
 
-        query_id!("roll-model-input", web_sys::HtmlInputElement)?
+        "roll-model-input"
+            .query_id_into::<HtmlInputElement>()?
             .set_value(data.model.as_deref().unwrap_or_default());
 
-        query_id!("roll-iso-input", web_sys::HtmlInputElement)?
+        "roll-iso-input"
+            .query_id_into::<HtmlInputElement>()?
             .set_value(data.iso.as_deref().unwrap_or_default());
 
-        query_id!("roll-description-input", web_sys::HtmlInputElement)?
+        "roll-description-input"
+            .query_id_into::<HtmlInputElement>()?
             .set_value(data.description.as_deref().unwrap_or_default());
 
         Ok(())
     }
 
     pub fn hide() -> Result<(), Error> {
-        query_selector!("div#roll")?.class_list().add_1("hidden")?;
+        "div#roll".query_selector()?.class_list().add_1("hidden")?;
 
         Ok(())
     }
 
     pub fn show() -> Result<(), Error> {
-        query_selector!("div#roll")?
+        "div#roll"
+            .query_selector()?
             .class_list()
             .remove_1("hidden")?;
 

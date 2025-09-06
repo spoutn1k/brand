@@ -36,10 +36,12 @@ pub enum Error {
     ProgressSend(#[from] async_channel::SendError<controller::Progress>),
     #[error(transparent)]
     ThreadVariable(#[from] AccessError),
-    #[error("Failed to access global `window`")]
+    #[error("Failed to access global window")]
     NoWindow,
-    #[error("Failed to access `document` on global `window`")]
+    #[error("Failed to access document on global window")]
     NoDocument,
+    #[error("Failed to access document body")]
+    NoBody,
     #[error("Failed to access `session_storage` on global `window`")]
     NoStorage,
     #[error("Failed to access element with id {0}")]

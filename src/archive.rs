@@ -1,8 +1,4 @@
-use crate::{
-    Error, download_buffer,
-    macros::{SessionStorageExt, storage},
-    models::Data,
-};
+use crate::{Error, SessionStorageExt, download_buffer, models::Data, storage};
 use futures::StreamExt;
 use std::{
     io::{Cursor, Write},
@@ -43,7 +39,7 @@ impl<W: Write> AddFileExt for tar::Builder<W> {
 pub async fn export_dir<P: AsRef<Path>>(path: P, folder_name: PathBuf) -> Result<(), Error> {
     let mut archive_builder = create_archive();
 
-    let data: Data = serde_json::from_str(&storage!()?.get_existing("data")?)?;
+    let data: Data = serde_json::from_str(&storage()?.get_existing("data")?)?;
     let file = data.to_string();
 
     archive_builder.add_file(file.as_bytes(), folder_name.clone().join("index.tse"))?;

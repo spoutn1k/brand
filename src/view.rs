@@ -207,7 +207,7 @@ pub mod preview {
 
 pub mod exposure {
     use crate::{
-        Aquiesce, Error, EventTargetExt, JsError, JsResult, QueryExt, SetEventHandlerExt, bindings,
+        Aquiesce, Error, EventTargetExt, QueryExt, SetEventHandlerExt, bindings,
         controller::{self, UIExposureUpdate, Update},
         models::{self, HTML_INPUT_TIMESTAMP_FORMAT},
     };
@@ -222,39 +222,69 @@ pub mod exposure {
 
     static ROTATE_RIGHT: Closure<dyn Fn(Event)> =
         Closure::new(|_| controller::update(Update::RotateRight).aquiesce());
-    }
 
-    fn set_handler(
-        field: impl Fn(String) -> UIExposureUpdate + 'static + Clone,
-        input: &web_sys::Element,
-    ) -> JsResult {
-        let handler = Closure::<dyn Fn(_) -> JsResult>::new(move |event: Event| -> JsResult {
-            controller::update(Update::ExposureField(field(
-                event.target_into::<HtmlInputElement>()?.value(),
-            )))
-            .js_error()
-        });
+    static UPDATE_SSPEED: Closure<dyn Fn(Event)> = Closure::new(|event: Event| {
+        event
+            .target_into::<HtmlInputElement>()
+            .and_then(|t| controller::update(Update::Exposure(UIExposureUpdate::ShutterSpeed(t.value()))))
+            .aquiesce()
+    });
 
-        input.add_event_listener_with_callback("input", handler.as_ref().unchecked_ref())?;
-        handler.forget();
+    static UPDATE_APERTURE: Closure<dyn Fn(Event)> = Closure::new(|event: Event| {
+        event
+            .target_into::<HtmlInputElement>()
+            .and_then(|t| controller::update(Update::Exposure(UIExposureUpdate::Aperture(t.value()))))
+            .aquiesce()
+    });
 
-        Ok(())
+    static UPDATE_LENS: Closure<dyn Fn(Event)> = Closure::new(|event: Event| {
+        event
+            .target_into::<HtmlInputElement>()
+            .and_then(|t| controller::update(Update::Exposure(UIExposureUpdate::Lens(t.value()))))
+            .aquiesce()
+    });
+
+    static UPDATE_COMMENT: Closure<dyn Fn(Event)> = Closure::new(|event: Event| {
+        event
+            .target_into::<HtmlInputElement>()
+            .and_then(|t| controller::update(Update::Exposure(UIExposureUpdate::Comment(t.value()))))
+            .aquiesce()
+    });
+
+    static UPDATE_DATE: Closure<dyn Fn(Event)> = Closure::new(|event: Event| {
+        event
+            .target_into::<HtmlInputElement>()
+            .and_then(|t| controller::update(Update::Exposure(UIExposureUpdate::Date(t.value()))))
+            .aquiesce()
+    });
+
+    static UPDATE_GPS: Closure<dyn Fn(Event)> = Closure::new(|event: Event| {
+        event
+            .target_into::<HtmlInputElement>()
+            .and_then(|t| controller::update(Update::Exposure(UIExposureUpdate::Gps(t.value()))))
+            .aquiesce()
+    });
     }
 
     pub fn setup() -> Result<(), Error> {
-        let sspeed_input = "input#exposures-sspeed-input".query_selector()?;
-        let aperture_input = "input#exposures-aperture-input".query_selector()?;
-        let lens_input = "input#exposures-lens-input".query_selector()?;
-        let comment_input = "input#exposures-comment-input".query_selector()?;
-        let date_input = "input#exposures-date-input".query_selector()?;
-        let gps_input = "input#exposures-gps-input".query_selector()?;
-
-        set_handler(UIExposureUpdate::ShutterSpeed, &sspeed_input)?;
-        set_handler(UIExposureUpdate::Aperture, &aperture_input)?;
-        set_handler(UIExposureUpdate::Lens, &lens_input)?;
-        set_handler(UIExposureUpdate::Comment, &comment_input)?;
-        set_handler(UIExposureUpdate::Date, &date_input)?;
-        set_handler(UIExposureUpdate::Gps, &gps_input)?;
+        "input#exposures-sspeed-input"
+            .query_selector()?
+            .on("input", &UPDATE_SSPEED)?;
+        "input#exposures-aperture-input"
+            .query_selector()?
+            .on("input", &UPDATE_APERTURE)?;
+        "input#exposures-lens-input"
+            .query_selector()?
+            .on("input", &UPDATE_LENS)?;
+        "input#exposures-comment-input"
+            .query_selector()?
+            .on("input", &UPDATE_COMMENT)?;
+        "input#exposures-date-input"
+            .query_selector()?
+            .on("input", &UPDATE_DATE)?;
+        "input#exposures-gps-input"
+            .query_selector()?
+            .on("input", &UPDATE_GPS)?;
 
         "button#exposures-gps-button"
             .query_selector()?
@@ -329,7 +359,7 @@ pub mod exposure {
 
 pub mod roll {
     use crate::{
-        Aquiesce, Error, EventTargetExt, JsError, JsResult, QueryExt, SetEventHandlerExt,
+        Aquiesce, Error, EventTargetExt, QueryExt, SetEventHandlerExt,
         controller::{self, UIRollUpdate, Update},
         models::RollData,
         view,
@@ -346,37 +376,53 @@ pub mod roll {
             crate::process_images().await.aquiesce();
         });
     });
-    }
 
-    fn set_handler(
-        field: impl Fn(String) -> UIRollUpdate + 'static + Clone,
-        input: &web_sys::Element,
-    ) -> JsResult {
-        let handler = Closure::<dyn Fn(Event) -> JsResult>::new(move |event: Event| -> JsResult {
-            controller::update(Update::Roll(field(
-                event.target_into::<HtmlInputElement>()?.value(),
-            )))
-            .js_error()
-        });
+    static UPDATE_AUTHOR: Closure<dyn Fn(Event)> = Closure::new(|event: Event| {
+        event
+            .target_into::<HtmlInputElement>()
+            .and_then(|t| controller::update(Update::Roll(UIRollUpdate::Author(t.value()))))
+            .aquiesce()
+    });
 
-        input.add_event_listener_with_callback("input", handler.as_ref().unchecked_ref())?;
-        handler.forget();
+    static UPDATE_MAKE: Closure<dyn Fn(Event)> = Closure::new(|event: Event| {
+        event
+            .target_into::<HtmlInputElement>()
+            .and_then(|t| controller::update(Update::Roll(UIRollUpdate::Make(t.value()))))
+            .aquiesce()
+    });
 
-        Ok(())
+    static UPDATE_MODEL: Closure<dyn Fn(Event)> = Closure::new(|event: Event| {
+        event
+            .target_into::<HtmlInputElement>()
+            .and_then(|t| controller::update(Update::Roll(UIRollUpdate::Model(t.value()))))
+            .aquiesce()
+    });
+
+    static UPDATE_ISO: Closure<dyn Fn(Event)> = Closure::new(|event: Event| {
+        event
+            .target_into::<HtmlInputElement>()
+            .and_then(|t| controller::update(Update::Roll(UIRollUpdate::Iso(t.value()))))
+            .aquiesce()
+    });
+
+    static UPDATE_DESCRIPTION: Closure<dyn Fn(Event)> = Closure::new(|event: Event| {
+        event
+            .target_into::<HtmlInputElement>()
+            .and_then(|t| controller::update(Update::Roll(UIRollUpdate::Film(t.value()))))
+            .aquiesce()
+    });
     }
 
     pub fn setup() -> Result<(), Error> {
-        let author_input = "roll-author-input".query_id()?;
-        let make_input = "roll-make-input".query_id()?;
-        let model_input = "roll-model-input".query_id()?;
-        let iso_input = "roll-iso-input".query_id()?;
-        let description_input = "roll-description-input".query_id()?;
-
-        set_handler(UIRollUpdate::Author, &author_input)?;
-        set_handler(UIRollUpdate::Make, &make_input)?;
-        set_handler(UIRollUpdate::Model, &model_input)?;
-        set_handler(UIRollUpdate::Iso, &iso_input)?;
-        set_handler(UIRollUpdate::Film, &description_input)?;
+        "roll-author-input"
+            .query_id()?
+            .on("input", &UPDATE_AUTHOR)?;
+        "roll-make-input".query_id()?.on("input", &UPDATE_MAKE)?;
+        "roll-model-input".query_id()?.on("input", &UPDATE_MODEL)?;
+        "roll-iso-input".query_id()?.on("input", &UPDATE_ISO)?;
+        "roll-description-input"
+            .query_id()?
+            .on("input", &UPDATE_DESCRIPTION)?;
 
         "editor-reset".query_id()?.on("click", &RESET_EDITOR)?;
         "download".query_id()?.on("click", &EXPORT)?;
@@ -384,7 +430,7 @@ pub mod roll {
         Ok(())
     }
 
-    pub fn fill_fields(data: &RollData) -> JsResult {
+    pub fn fill_fields(data: &RollData) -> Result<(), Error> {
         "roll-author-input"
             .query_id_into::<HtmlInputElement>()?
             .set_value(data.author.as_deref().unwrap_or_default());

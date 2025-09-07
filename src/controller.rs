@@ -23,7 +23,7 @@ pub enum Update {
     SelectionClear,
     SelectionAll,
     SelectionInvert,
-    ExposureField(UIExposureUpdate),
+    Exposure(UIExposureUpdate),
     Roll(UIRollUpdate),
     FileMetadata(PathBuf, FileMetadata),
     RotateLeft,
@@ -286,7 +286,7 @@ fn rotate_id(index: u32, orientation: Orientation) -> Result<(), Error> {
 pub fn update(event: Update) -> Result<(), Error> {
     match event {
         Update::Roll(d) => roll_update(d),
-        Update::ExposureField(d) => exposure_update_field(d),
+        Update::Exposure(d) => exposure_update_field(d),
         Update::SelectExposure(_, _, _)
         | Update::SelectionClear
         | Update::SelectionAll

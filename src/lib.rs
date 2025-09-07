@@ -47,7 +47,7 @@ pub mod bindings {
 
     #[wasm_bindgen]
     pub async fn update_coords(lat: f64, lon: f64) -> JsResult {
-        controller::update(Update::ExposureField(UIExposureUpdate::Gps(format!(
+        controller::update(Update::Exposure(UIExposureUpdate::Gps(format!(
             "{lat}, {lon}"
         ))))
         .js_error()

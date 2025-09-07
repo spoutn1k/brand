@@ -38,7 +38,9 @@ pub mod editor {
 }
 
 pub mod landing {
-    use crate::{Error, EventTargetExt, JsResult, QueryExt, error::Aquiesce, fs};
+    use crate::{
+        Error, EventTargetExt, JsResult, QueryExt, SetEventHandlerExt, error::Aquiesce, fs,
+    };
     use wasm_bindgen::prelude::*;
     use web_sys::{Event, FileSystemFileEntry, HtmlInputElement, InputEvent};
 
@@ -82,29 +84,12 @@ pub mod landing {
     }
 
     pub fn setup() -> Result<(), Error> {
-        DRAG_FILES
-            .try_with(|h| {
-                "photoselect"
-                    .query_id_into::<HtmlInputElement>()?
-                    .add_event_listener_with_callback("change", h.as_ref().unchecked_ref())
-            })
-            .map_err(Error::from)??;
+        "photoselect"
+            .query_id()?
+            .on("change", &DRAG_FILES)?
+            .on("click", &INHIBIT)?;
 
-        INHIBIT
-            .try_with(|c| {
-                "photoselect"
-                    .query_id_into::<HtmlInputElement>()?
-                    .add_event_listener_with_callback("click", c.as_ref().unchecked_ref())
-            })
-            .map_err(Error::from)??;
-
-        CLEAR_STORAGE
-            .try_with(|handler| {
-                "clear-storage"
-                    .query_id()?
-                    .add_event_listener_with_callback("click", handler.as_ref().unchecked_ref())
-            })
-            .map_err(Error::from)??;
+        "clear-storage".query_id()?.on("click", &CLEAR_STORAGE)?;
 
         Ok(())
     }
@@ -124,7 +109,7 @@ pub mod landing {
 
 pub mod preview {
     use crate::{
-        Aquiesce, AsHtmlExt, Error, EventTargetExt, QueryExt,
+        Aquiesce, AsHtmlExt, Error, EventTargetExt, QueryExt, SetEventHandlerExt,
         controller::{self, Update},
         models,
     };
@@ -172,11 +157,7 @@ pub mod preview {
             image.set_attribute("alt", &format!("E{}", index))?;
             image.set_attribute("data-exposure-index", &index.to_string())?;
 
-            CLICK_EXPOSURE
-                .try_with(|h| {
-                    image.add_event_listener_with_callback("click", h.as_ref().unchecked_ref())
-                })
-                .map_err(Error::from)??;
+            image.on("click", &CLICK_EXPOSURE)?;
 
             "preview-thumbnails"
                 .query_id()?
@@ -187,29 +168,15 @@ pub mod preview {
     }
 
     pub fn setup() -> Result<(), Error> {
-        SELECTION_CLEAR
-            .try_with(|c| {
-                "selection-clear"
-                    .query_id()?
-                    .add_event_listener_with_callback("click", c.as_ref().unchecked_ref())
-            })
-            .map_err(Error::from)??;
+        "selection-clear"
+            .query_id()?
+            .on("click", &SELECTION_CLEAR)?;
 
-        SELECTION_ALL
-            .try_with(|c| {
-                "selection-all"
-                    .query_id()?
-                    .add_event_listener_with_callback("click", c.as_ref().unchecked_ref())
-            })
-            .map_err(Error::from)??;
+        "selection-all".query_id()?.on("click", &SELECTION_ALL)?;
 
-        SELECTION_INVERT
-            .try_with(|c| {
-                "selection-invert"
-                    .query_id()?
-                    .add_event_listener_with_callback("click", c.as_ref().unchecked_ref())
-            })
-            .map_err(Error::from)??;
+        "selection-invert"
+            .query_id()?
+            .on("click", &SELECTION_INVERT)?;
 
         Ok(())
     }
@@ -240,7 +207,7 @@ pub mod preview {
 
 pub mod exposure {
     use crate::{
-        Aquiesce, Error, EventTargetExt, JsError, JsResult, QueryExt, bindings,
+        Aquiesce, Error, EventTargetExt, JsError, JsResult, QueryExt, SetEventHandlerExt, bindings,
         controller::{self, UIExposureUpdate, Update},
         models::{self, HTML_INPUT_TIMESTAMP_FORMAT},
     };
@@ -289,29 +256,12 @@ pub mod exposure {
         set_handler(UIExposureUpdate::Date, &date_input)?;
         set_handler(UIExposureUpdate::Gps, &gps_input)?;
 
-        PROMPT_GPS
-            .try_with(|c| {
-                "button#exposures-gps-button"
-                    .query_selector()?
-                    .add_event_listener_with_callback("click", c.as_ref().unchecked_ref())
-            })
-            .map_err(Error::from)??;
+        "button#exposures-gps-button"
+            .query_selector()?
+            .on("click", &PROMPT_GPS)?;
 
-        ROTATE_LEFT
-            .try_with(|c| {
-                "rotate-left"
-                    .query_id()?
-                    .add_event_listener_with_callback("click", c.as_ref().unchecked_ref())
-            })
-            .map_err(Error::from)??;
-
-        ROTATE_RIGHT
-            .try_with(|c| {
-                "rotate-right"
-                    .query_id()?
-                    .add_event_listener_with_callback("click", c.as_ref().unchecked_ref())
-            })
-            .map_err(Error::from)??;
+        "rotate-left".query_id()?.on("click", &ROTATE_LEFT)?;
+        "rotate-right".query_id()?.on("click", &ROTATE_RIGHT)?;
 
         Ok(())
     }
@@ -379,7 +329,7 @@ pub mod exposure {
 
 pub mod roll {
     use crate::{
-        Aquiesce, Error, EventTargetExt, JsError, JsResult, QueryExt,
+        Aquiesce, Error, EventTargetExt, JsError, JsResult, QueryExt, SetEventHandlerExt,
         controller::{self, UIRollUpdate, Update},
         models::RollData,
         view,
@@ -428,21 +378,8 @@ pub mod roll {
         set_handler(UIRollUpdate::Iso, &iso_input)?;
         set_handler(UIRollUpdate::Film, &description_input)?;
 
-        RESET_EDITOR
-            .try_with(|c| {
-                "editor-reset"
-                    .query_id()?
-                    .add_event_listener_with_callback("click", c.as_ref().unchecked_ref())
-            })
-            .map_err(Error::from)??;
-
-        EXPORT
-            .try_with(|h| {
-                "download"
-                    .query_id()?
-                    .add_event_listener_with_callback("click", h.as_ref().unchecked_ref())
-            })
-            .map_err(Error::from)??;
+        "editor-reset".query_id()?.on("click", &RESET_EDITOR)?;
+        "download".query_id()?.on("click", &EXPORT)?;
 
         Ok(())
     }

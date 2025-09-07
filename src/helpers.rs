@@ -1,5 +1,7 @@
+use std::thread::LocalKey;
+
 use crate::Error;
-use wasm_bindgen::JsCast;
+use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{Document, Element, Event, EventTarget, HtmlElement, Storage, Window};
 
 fn window() -> Result<Window, Error> {
@@ -108,5 +110,27 @@ where
         let element = document()?.create_element(self.as_ref())?.unchecked_into();
 
         Ok(element)
+    }
+}
+
+pub trait SetEventHandlerExt<C> {
+    fn on(&self, event_type: &str, handler: &'static C) -> Result<&Self, Error>;
+}
+
+impl<E, C> SetEventHandlerExt<LocalKey<C>> for E
+where
+    E: Into<EventTarget> + Clone,
+    C: AsRef<JsValue>,
+{
+    fn on(&self, event_type: &str, handler: &'static LocalKey<C>) -> Result<&Self, Error> {
+        handler
+            .try_with(|h| {
+                self.clone()
+                    .into()
+                    .add_event_listener_with_callback(event_type, h.as_ref().unchecked_ref())
+            })
+            .map_err(Error::from)??;
+
+        Ok(self)
     }
 }

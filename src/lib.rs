@@ -28,7 +28,8 @@ use web_sys::{
 
 pub use error::{Aquiesce, Error, JsError, JsResult};
 pub use helpers::{
-    AsHtmlExt, EventTargetExt, QueryExt, SessionStorageExt, body, document, storage,
+    AsHtmlExt, EventTargetExt, QueryExt, SessionStorageExt, SetEventHandlerExt, body, document,
+    storage,
 };
 
 pub mod bindings {
@@ -373,12 +374,7 @@ pub fn setup() -> JsResult {
     }
 
     // Listen for keypresses and handle them accordingly
-    KEY_HANDLER
-        .try_with(|handler| {
-            document()?
-                .add_event_listener_with_callback("keydown", handler.as_ref().unchecked_ref())
-        })
-        .map_err(Error::from)??;
+    document()?.on("keydown", &KEY_HANDLER)?;
 
     wasm_bindgen_futures::spawn_local(async { view::landing::landing_stats().await.aquiesce() });
 

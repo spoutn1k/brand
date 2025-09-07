@@ -13,7 +13,7 @@ use crate::{
     controller::get_exposure_data,
     models::{Data, FileKind, FileMetadata, Meta, Orientation, WorkerMessage},
 };
-use controller::{UIExposureUpdate, Update};
+use controller::Update;
 use image::ImageFormat;
 use js_sys::{Array, Uint8Array};
 use std::{
@@ -32,12 +32,24 @@ pub use helpers::{
 };
 
 pub mod bindings {
+    use crate::{
+        JsError, JsResult, controller,
+        controller::{UIExposureUpdate, Update},
+    };
     use wasm_bindgen::prelude::wasm_bindgen;
 
     #[wasm_bindgen]
     extern "C" {
         fn set_marker(x: f64, y: f64);
         pub fn prompt_coords();
+    }
+
+    #[wasm_bindgen]
+    pub async fn update_coords(lat: f64, lon: f64) -> JsResult {
+        controller::update(Update::ExposureField(UIExposureUpdate::Gps(format!(
+            "{lat}, {lon}"
+        ))))
+        .js_error()
     }
 }
 
@@ -207,9 +219,7 @@ async fn setup_editor_from_files(files: &[FileSystemFileEntry]) -> Result<(), Er
         &serde_json::to_string(&metadata.iter().cloned().collect::<Meta>())?,
     )?;
 
-    view::preview::setup()?;
     view::preview::create(images.len() as u32)?;
-    view::exposure::setup()?;
 
     storage()?.set_item(
         "data",
@@ -284,14 +294,6 @@ async fn setup_editor_from_files(files: &[FileSystemFileEntry]) -> Result<(), Er
     Ok(())
 }
 
-#[wasm_bindgen]
-pub async fn update_coords(lat: f64, lon: f64) -> JsResult {
-    controller::update(Update::ExposureField(UIExposureUpdate::Gps(format!(
-        "{lat}, {lon}"
-    ))))
-    .js_error()
-}
-
 fn set_image(data: JsValue) -> Result<(), Error> {
     let models::WorkerCompressionAnswer(index, base64): models::WorkerCompressionAnswer =
         serde_wasm_bindgen::from_value(data)?;
@@ -316,7 +318,6 @@ async fn setup_editor_from_data(contents: Data) -> Result<(), Error> {
     storage()?.set_item("data", &serde_json::to_string(&contents)?)?;
 
     view::preview::create(contents.exposures.len() as u32)?;
-    view::exposure::setup()?;
 
     view::landing::hide()?;
     view::editor::show()?;
@@ -326,8 +327,11 @@ async fn setup_editor_from_data(contents: Data) -> Result<(), Error> {
 
 async fn generate_thumbnails() -> Result<(), Error> {
     let data: Meta = serde_json::from_str(&storage()?.get_existing("metadata")?)?;
-    let tasks: Vec<_> = data
-        .into_values()
+    let mut tasks: Vec<_> = data.into_values().collect();
+    tasks.sort_by(|a, b| b.index.cmp(&a.index));
+
+    let tasks: Vec<_> = tasks
+        .into_iter()
         .map(models::WorkerMessage::GenerateThumbnail)
         .collect();
 
@@ -353,9 +357,11 @@ async fn generate_thumbnails() -> Result<(), Error> {
 
 #[wasm_bindgen]
 pub fn setup() -> JsResult {
-    view::preview::setup()?;
-    view::landing::setup()?;
-    view::roll::setup()?;
+    view::preview::setup()
+        .and(view::landing::setup())
+        .and(view::exposure::setup())
+        .and(view::roll::setup())?;
+    controller::update(Update::SelectionClear).aquiesce();
 
     wasm_bindgen_futures::spawn_local(async { controller::handle_progress().await.aquiesce() });
 

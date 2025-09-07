@@ -240,8 +240,11 @@ fn manage_selection(operation: Update) -> Result<(), Error> {
 
     storage.set_item("selected", &serde_json::to_string(&selection)?)?;
 
-    show_selection(&selection)?;
-    view::preview::reflect_selection(&all, &selection)
+    show_selection(&selection)
+        .and(view::preview::reflect_selection(&all, &selection))
+        .aquiesce();
+
+    Ok(())
 }
 
 pub fn rotate(update: Update) -> Result<(), Error> {

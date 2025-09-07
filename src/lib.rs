@@ -9,7 +9,10 @@ pub mod models;
 pub mod view;
 pub mod worker;
 
-use crate::models::{Data, FileKind, FileMetadata, Meta, Orientation, WorkerMessage};
+use crate::{
+    controller::get_exposure_data,
+    models::{Data, FileKind, FileMetadata, Meta, Orientation, WorkerMessage},
+};
 use controller::{UIExposureUpdate, Update};
 use image::ImageFormat;
 use js_sys::{Array, Uint8Array};
@@ -58,14 +61,14 @@ async fn process_images() -> Result<(), Error> {
         "roll".to_string()
     });
 
-    let tasks = data
+    let exposures = get_exposure_data()?;
+
+    let tasks: Vec<_> = data
         .into_values()
         .map(|entry| {
-            let data = controller::get_exposure_data(entry.index)?;
-
-            Ok(WorkerMessage::Process(entry, Box::new(data)))
+            WorkerMessage::Process(entry.clone(), Box::new(exposures.generate(entry.index)))
         })
-        .collect::<Result<Vec<_>, Error>>()?;
+        .collect();
 
     controller::notifier()
         .send(controller::Progress::ProcessingStart(tasks.len() as u32))

@@ -1,7 +1,4 @@
-use crate::{
-    Error,
-    controller::{ExposureUpdate, RollUpdate},
-};
+use crate::Error;
 use chrono::{DateTime, NaiveDateTime};
 use image::ImageFormat;
 use serde::{Deserialize, Serialize};
@@ -249,14 +246,12 @@ impl ExposureData {
 }
 
 impl RollData {
-    pub fn update(&mut self, change: RollUpdate) {
-        match change {
-            RollUpdate::Author(value) => self.author = value,
-            RollUpdate::Film(value) => self.description = value,
-            RollUpdate::Iso(value) => self.iso = value,
-            RollUpdate::Make(value) => self.make = value,
-            RollUpdate::Model(value) => self.model = value,
-        }
+    pub fn update(&mut self, change: Self) {
+        self.author = change.author.or(self.author.to_owned());
+        self.make = change.make.or(self.make.to_owned());
+        self.model = change.model.or(self.model.to_owned());
+        self.iso = change.iso.or(self.iso.to_owned());
+        self.description = change.description.or(self.description.to_owned());
     }
 
     pub fn as_tsv(&self) -> String {
@@ -269,27 +264,25 @@ impl RollData {
 #Make {}
 #Model {}
 ; vim: set list number noexpandtab:",
-            self.description.clone().unwrap_or_default(),
-            self.description.clone().unwrap_or_default(),
-            self.author.clone().unwrap_or_default(),
-            self.author.clone().unwrap_or_default(),
-            self.iso.clone().unwrap_or_default(),
-            self.make.clone().unwrap_or_default(),
-            self.model.clone().unwrap_or_default(),
+            self.description.as_deref().unwrap_or_default(),
+            self.description.as_deref().unwrap_or_default(),
+            self.author.as_deref().unwrap_or_default(),
+            self.author.as_deref().unwrap_or_default(),
+            self.iso.as_deref().unwrap_or_default(),
+            self.make.as_deref().unwrap_or_default(),
+            self.model.as_deref().unwrap_or_default(),
         )
     }
 }
 
 impl ExposureSpecificData {
-    pub fn update(&mut self, change: ExposureUpdate) {
-        match change {
-            ExposureUpdate::ShutterSpeed(value) => self.sspeed = value,
-            ExposureUpdate::Aperture(value) => self.aperture = value,
-            ExposureUpdate::Comment(value) => self.comment = value,
-            ExposureUpdate::Lens(value) => self.lens = value,
-            ExposureUpdate::Date(value) => self.date = value,
-            ExposureUpdate::Gps(value) => self.gps = value,
-        }
+    pub fn update(&mut self, change: Self) {
+        self.sspeed = change.sspeed.or(self.sspeed.to_owned());
+        self.aperture = change.aperture.or(self.aperture.to_owned());
+        self.comment = change.comment.or(self.comment.to_owned());
+        self.lens = change.lens.or(self.lens.to_owned());
+        self.date = change.date.or(self.date.to_owned());
+        self.gps = change.gps.or(self.gps.to_owned());
     }
 
     fn as_tsv(&self) -> String {
@@ -302,7 +295,7 @@ impl ExposureSpecificData {
 
         fields.push(
             self.date
-                .map(|d| format!("{}", d.format("%Y %m %d %H %M %S")))
+                .map(|d| d.format("%Y %m %d %H %M %S").to_string())
                 .unwrap_or_default(),
         );
 

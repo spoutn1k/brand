@@ -1,14 +1,15 @@
 use crate::{
     Aquiesce, Error, Orientation, QueryExt, SessionStorageExt,
     models::{
-        Data, ExposureData, FileMetadata, HTML_INPUT_TIMESTAMP_FORMAT,
-        HTML_INPUT_TIMESTAMP_FORMAT_N, Meta, Selection, WorkerCompressionAnswer,
+        Data, ExposureSpecificData, FileMetadata, HTML_INPUT_TIMESTAMP_FORMAT,
+        HTML_INPUT_TIMESTAMP_FORMAT_N, Meta, RollData, Selection, WorkerCompressionAnswer,
     },
     storage, view,
 };
 use async_channel::{Receiver, Sender};
 use chrono::NaiveDateTime;
 use std::{cell::Cell, convert::TryInto, path::PathBuf};
+use winnow::{ModalResult, Parser, ascii::float, combinator::separated_pair};
 
 thread_local! {
 static CHANNEL: (Sender<Progress>, Receiver<Progress>) = async_channel::bounded(80);
@@ -39,15 +40,6 @@ pub enum UIRollUpdate {
 }
 
 #[derive(Debug, Clone)]
-pub enum RollUpdate {
-    Author(Option<String>),
-    Make(Option<String>),
-    Model(Option<String>),
-    Iso(Option<String>),
-    Film(Option<String>),
-}
-
-#[derive(Debug, Clone)]
 pub enum UIExposureUpdate {
     ShutterSpeed(String),
     Aperture(String),
@@ -57,76 +49,60 @@ pub enum UIExposureUpdate {
     Gps(String),
 }
 
-#[derive(Debug, Clone)]
-pub enum ExposureUpdate {
-    ShutterSpeed(Option<String>),
-    Aperture(Option<String>),
-    Lens(Option<String>),
-    Comment(Option<String>),
-    Date(Option<NaiveDateTime>),
-    Gps(Option<(f64, f64)>),
+fn parse_gps(r: String) -> Result<(f64, f64), Error> {
+    fn inner(line: &mut &str) -> ModalResult<(f64, f64)> {
+        separated_pair(float, ",", float).parse_next(line)
+    }
+
+    let pair = inner
+        .parse(r.as_str())
+        .map_err(|e| Error::GpsParse(e.to_string()))?;
+
+    Ok(pair)
 }
 
-impl TryInto<ExposureUpdate> for UIExposureUpdate {
+impl TryFrom<UIExposureUpdate> for ExposureSpecificData {
     type Error = Error;
 
-    fn try_into(self) -> Result<ExposureUpdate, Self::Error> {
-        Ok(match self {
-            UIExposureUpdate::ShutterSpeed(s) => {
-                ExposureUpdate::ShutterSpeed(if !s.is_empty() { Some(s) } else { None })
+    fn try_from(update: UIExposureUpdate) -> Result<Self, Error> {
+        let mut data = Self::default();
+
+        match update {
+            UIExposureUpdate::ShutterSpeed(s) => data.sspeed = (!s.is_empty()).then_some(s),
+            UIExposureUpdate::Aperture(s) => data.aperture = (!s.is_empty()).then_some(s),
+            UIExposureUpdate::Comment(s) => data.aperture = (!s.is_empty()).then_some(s),
+            UIExposureUpdate::Lens(s) => data.aperture = (!s.is_empty()).then_some(s),
+            UIExposureUpdate::Date(s) => {
+                data.date = (!s.is_empty()).then_some(
+                    NaiveDateTime::parse_from_str(&s, HTML_INPUT_TIMESTAMP_FORMAT).or(
+                        NaiveDateTime::parse_from_str(&s, HTML_INPUT_TIMESTAMP_FORMAT_N),
+                    )?,
+                )
             }
-            UIExposureUpdate::Aperture(s) => {
-                ExposureUpdate::Aperture(if !s.is_empty() { Some(s) } else { None })
-            }
-            UIExposureUpdate::Comment(s) => {
-                ExposureUpdate::Comment(if !s.is_empty() { Some(s) } else { None })
-            }
-            UIExposureUpdate::Lens(s) => {
-                ExposureUpdate::Lens(if !s.is_empty() { Some(s) } else { None })
-            }
-            UIExposureUpdate::Date(value) => ExposureUpdate::Date(Some(
-                NaiveDateTime::parse_from_str(&value, HTML_INPUT_TIMESTAMP_FORMAT).or(
-                    NaiveDateTime::parse_from_str(&value, HTML_INPUT_TIMESTAMP_FORMAT_N),
-                )?,
-            )),
-            UIExposureUpdate::Gps(value) => {
-                let split = value.split(",").collect::<Vec<_>>();
-                if split.len() == 2 {
-                    match (
-                        split[0].trim().parse::<f64>(),
-                        split[1].trim().parse::<f64>(),
-                    ) {
-                        (Ok(lat), Ok(lon)) => ExposureUpdate::Gps(Some((lat, lon))),
-                        (Err(_), _) => Err(Error::GpsParse(split[0].to_string()))?,
-                        (_, Err(_)) => Err(Error::GpsParse(split[1].to_string()))?,
-                    }
-                } else {
-                    Err(Error::GpsParse(value))?
-                }
-            }
-        })
+            UIExposureUpdate::Gps(value) => data.gps = Some(parse_gps(value)?),
+        }
+
+        Ok(data)
     }
 }
 
-impl TryInto<RollUpdate> for UIRollUpdate {
-    type Error = Error;
+impl From<UIRollUpdate> for RollData {
+    fn from(update: UIRollUpdate) -> Self {
+        let mut data = Self::default();
 
-    fn try_into(self) -> Result<RollUpdate, Self::Error> {
-        Ok(match self {
-            UIRollUpdate::Author(s) => {
-                RollUpdate::Author(if !s.is_empty() { Some(s) } else { None })
-            }
-            UIRollUpdate::Make(s) => RollUpdate::Make(if !s.is_empty() { Some(s) } else { None }),
-            UIRollUpdate::Model(s) => RollUpdate::Model(if !s.is_empty() { Some(s) } else { None }),
-            UIRollUpdate::Iso(s) => RollUpdate::Iso(if !s.is_empty() { Some(s) } else { None }),
-            UIRollUpdate::Film(s) => RollUpdate::Film(if !s.is_empty() { Some(s) } else { None }),
-        })
+        match update {
+            UIRollUpdate::Author(s) => data.author = (!s.is_empty()).then_some(s),
+            UIRollUpdate::Make(s) => data.make = (!s.is_empty()).then_some(s),
+            UIRollUpdate::Model(s) => data.model = (!s.is_empty()).then_some(s),
+            UIRollUpdate::Iso(s) => data.iso = (!s.is_empty()).then_some(s),
+            UIRollUpdate::Film(s) => data.description = (!s.is_empty()).then_some(s),
+        };
+
+        data
     }
 }
 
 fn exposure_update_field(change: UIExposureUpdate) -> Result<(), Error> {
-    let validated: ExposureUpdate = change.clone().try_into()?;
-
     let storage = storage()?;
     let mut data: Data = serde_json::from_str(&storage.get_existing("data")?)?;
 
@@ -134,7 +110,7 @@ fn exposure_update_field(change: UIExposureUpdate) -> Result<(), Error> {
         data.exposures
             .get_mut(&target)
             .ok_or(Error::MissingKey(format!("exposure {target}")))?
-            .update(validated.clone());
+            .update(change.clone().try_into()?);
     }
 
     storage.set_item("data", &serde_json::to_string(&data)?)?;
@@ -153,12 +129,10 @@ async fn exposure_update_image(meta: FileMetadata) -> Result<(), Error> {
 }
 
 fn roll_update(change: UIRollUpdate) -> Result<(), Error> {
-    let validated: RollUpdate = change.try_into()?;
-
     let storage = storage()?;
     let mut data: Data = serde_json::from_str(&storage.get_existing("data")?)?;
 
-    data.roll.update(validated);
+    data.roll.update(change.into());
 
     storage.set_item("data", &serde_json::to_string(&data)?)?;
 
@@ -208,11 +182,11 @@ pub fn get_selection() -> Result<Selection, Error> {
         .or(Ok(Selection::default()))
 }
 
-pub fn get_exposure_data(index: u32) -> Result<ExposureData, Error> {
+pub fn get_exposure_data() -> Result<Data, Error> {
     let storage = storage()?;
     let data: Data = serde_json::from_str(&storage.get_existing("data")?)?;
 
-    Ok(data.spread_shots().generate(index))
+    Ok(data.spread_shots())
 }
 
 fn show_selection(selection: &Selection) -> Result<(), Error> {

@@ -215,25 +215,6 @@ pub fn get_exposure_data(index: u32) -> Result<ExposureData, Error> {
     Ok(data.spread_shots().generate(index))
 }
 
-pub fn toggle_selection(index: u32, shift: bool, ctrl: bool) -> Result<(), Error> {
-    let mut selection = get_selection()?;
-
-    match (ctrl, shift) {
-        (false, false) => {
-            if !selection.contains(index) {
-                selection.set_one(index)
-            }
-        }
-        (true, false) => selection.toggle(index),
-        (false, true) => selection.group_select(index),
-        _ => (),
-    }
-
-    storage()?.set_item("selected", &serde_json::to_string(&selection)?)?;
-
-    show_selection(&selection)
-}
-
 fn show_selection(selection: &Selection) -> Result<(), Error> {
     let data: Data = storage()?
         .get_item("data")?
@@ -269,13 +250,24 @@ fn manage_selection(operation: Update) -> Result<(), Error> {
     match operation {
         Update::SelectionInvert => selection = inverted,
         Update::SelectionClear => selection.clear(),
-        Update::SelectionAll => selection = all,
+        Update::SelectionAll => selection = all.clone(),
+        Update::SelectExposure(index, shift, ctrl) => match (ctrl, shift) {
+            (false, false) => {
+                if !selection.contains(index) {
+                    selection.set_one(index)
+                }
+            }
+            (true, false) => selection.toggle(index),
+            (false, true) => selection.group_select(index),
+            _ => (),
+        },
         _ => unreachable!(),
     }
 
     storage.set_item("selected", &serde_json::to_string(&selection)?)?;
 
-    show_selection(&selection)
+    show_selection(&selection)?;
+    view::preview::reflect_selection(&all, &selection)
 }
 
 pub fn rotate(update: Update) -> Result<(), Error> {
@@ -318,10 +310,10 @@ pub fn update(event: Update) -> Result<(), Error> {
     match event {
         Update::Roll(d) => roll_update(d),
         Update::ExposureField(d) => exposure_update_field(d),
-        Update::SelectExposure(e, shift, ctrl) => toggle_selection(e, shift, ctrl),
-        Update::SelectionClear | Update::SelectionAll | Update::SelectionInvert => {
-            manage_selection(event)
-        }
+        Update::SelectExposure(_, _, _)
+        | Update::SelectionClear
+        | Update::SelectionAll
+        | Update::SelectionInvert => manage_selection(event),
         Update::FileMetadata(path, metadata) => {
             let storage = storage()?;
             let mut data: Meta = serde_json::from_str(&storage.get_existing("metadata")?)?;

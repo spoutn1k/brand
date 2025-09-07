@@ -85,8 +85,16 @@ body {
 
     grid-area: preview;
 
-    img {
-      max-height: 100%;
+    #preview-thumbnails {
+      img {
+        filter: brightness(30%);
+
+        &.selected {
+          filter: unset;
+        }
+
+        max-height: 100%;
+      }
     }
   }
 

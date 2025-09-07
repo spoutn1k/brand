@@ -124,7 +124,9 @@ pub mod landing {
 
 pub mod preview {
     use crate::{
-        Aquiesce, AsHtmlExt, Error, EventTargetExt, QueryExt, controller, controller::Update,
+        Aquiesce, AsHtmlExt, Error, EventTargetExt, QueryExt,
+        controller::{self, Update},
+        models,
     };
     use wasm_bindgen::prelude::*;
     use web_sys::{Event, HtmlElement, MouseEvent};
@@ -144,10 +146,6 @@ pub mod preview {
 
     fn handle_exposure_click(event: MouseEvent) {
         fn inner(event: MouseEvent) -> Result<(), Error> {
-            let shift = event.shift_key();
-            let ctrl = event.ctrl_key();
-            let meta = event.meta_key();
-
             let target = event.target_into::<HtmlElement>()?;
 
             let data = target
@@ -155,11 +153,11 @@ pub mod preview {
                 .ok_or(Error::MissingKey("img does not contain index".into()))?;
             let index = data.parse::<u32>()?;
 
-            log::info!(
-                "Clicked on exposure {index} with shift: {shift}, ctrl: {ctrl}, meta: {meta}"
-            );
-
-            controller::toggle_selection(index, shift, ctrl | meta)?;
+            controller::update(Update::SelectExposure(
+                index,
+                event.shift_key(),
+                event.ctrl_key() | event.meta_key(),
+            ))?;
 
             Ok(())
         }
@@ -218,6 +216,23 @@ pub mod preview {
 
     pub fn reset() -> Result<(), Error> {
         "preview-thumbnails".query_id()?.set_inner_html("");
+
+        Ok(())
+    }
+
+    pub fn reflect_selection(
+        all: &models::Selection,
+        selection: &models::Selection,
+    ) -> Result<(), Error> {
+        for index in all.items() {
+            let image = format!("exposure-{index}-preview").query_id()?;
+
+            if selection.contains(index) {
+                image.class_list().add_1("selected")?;
+            } else {
+                image.class_list().remove_1("selected")?;
+            }
+        }
 
         Ok(())
     }

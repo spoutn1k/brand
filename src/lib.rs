@@ -19,8 +19,8 @@ use std::{
 };
 use wasm_bindgen::prelude::*;
 use web_sys::{
-    Blob, Event, File as WebFile, FileSystemFileEntry, HtmlElement, HtmlInputElement, KeyEvent,
-    KeyboardEvent, MessageEvent,
+    Blob, Event, File as WebFile, FileSystemFileEntry, HtmlElement, KeyEvent, KeyboardEvent,
+    MessageEvent,
 };
 
 pub use error::{Aquiesce, Error, JsError, JsResult};

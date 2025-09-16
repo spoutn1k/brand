@@ -253,13 +253,13 @@ fn manage_selection(operation: Update) -> Result<(), Error> {
     Ok(())
 }
 
-pub fn rotate(update: Update) -> Result<(), Error> {
+async fn rotate(update: Update) -> Result<(), Error> {
     let selection = get_selection()?;
 
     for index in selection.items() {
         match update {
-            Update::RotateLeft => rotate_id(index, Orientation::Rotated270)?,
-            Update::RotateRight => rotate_id(index, Orientation::Rotated90)?,
+            Update::RotateLeft => rotate_id(index, Orientation::Rotated270).await?,
+            Update::RotateRight => rotate_id(index, Orientation::Rotated90).await?,
             _ => unreachable!(),
         }
     }
@@ -267,7 +267,7 @@ pub fn rotate(update: Update) -> Result<(), Error> {
     Ok(())
 }
 
-fn rotate_id(index: u32, orientation: Orientation) -> Result<(), Error> {
+async fn rotate_id(index: u32, orientation: Orientation) -> Result<(), Error> {
     let storage = storage()?;
     let mut data: Meta = serde_json::from_str(&storage.get_existing("metadata")?)?;
 
@@ -282,9 +282,7 @@ fn rotate_id(index: u32, orientation: Orientation) -> Result<(), Error> {
 
     storage.set_item("metadata", &serde_json::to_string(&data)?)?;
 
-    wasm_bindgen_futures::spawn_local(async move {
-        exposure_update_image(meta).await.aquiesce();
-    });
+    exposure_update_image(meta).await.aquiesce();
 
     Ok(())
 }
@@ -307,7 +305,13 @@ pub fn update(event: Update) -> Result<(), Error> {
 
             Ok(())
         }
-        Update::RotateLeft | Update::RotateRight => rotate(event),
+        Update::RotateLeft | Update::RotateRight => {
+            wasm_bindgen_futures::spawn_local(async move {
+                rotate(event).await.aquiesce();
+            });
+
+            Ok(())
+        }
     }
 }
 

@@ -9,7 +9,11 @@ use crate::{
 use async_channel::{Receiver, Sender};
 use chrono::NaiveDateTime;
 use std::{cell::Cell, convert::TryInto, path::PathBuf};
-use winnow::{ModalResult, Parser, ascii::float, combinator::separated_pair};
+use winnow::{
+    ModalResult, Parser,
+    ascii::{float, multispace0},
+    combinator::separated_pair,
+};
 
 thread_local! {
 static CHANNEL: (Sender<Progress>, Receiver<Progress>) = async_channel::bounded(80);
@@ -51,7 +55,7 @@ pub enum UIExposureUpdate {
 
 fn parse_gps(r: String) -> Result<(f64, f64), Error> {
     fn inner(line: &mut &str) -> ModalResult<(f64, f64)> {
-        separated_pair(float, ",", float).parse_next(line)
+        separated_pair(float, (multispace0, ",", multispace0), float).parse_next(line)
     }
 
     let pair = inner
@@ -68,16 +72,18 @@ impl TryFrom<UIExposureUpdate> for ExposureSpecificData {
         let mut data = Self::default();
 
         match update {
-            UIExposureUpdate::ShutterSpeed(s) => data.sspeed = (!s.is_empty()).then_some(s),
-            UIExposureUpdate::Aperture(s) => data.aperture = (!s.is_empty()).then_some(s),
-            UIExposureUpdate::Comment(s) => data.aperture = (!s.is_empty()).then_some(s),
-            UIExposureUpdate::Lens(s) => data.aperture = (!s.is_empty()).then_some(s),
+            UIExposureUpdate::ShutterSpeed(s) => data.sspeed = Some(s),
+            UIExposureUpdate::Aperture(s) => data.aperture = Some(s),
+            UIExposureUpdate::Comment(s) => data.comment = Some(s),
+            UIExposureUpdate::Lens(s) => data.lens = Some(s),
             UIExposureUpdate::Date(s) => {
-                data.date = (!s.is_empty()).then_some(
-                    NaiveDateTime::parse_from_str(&s, HTML_INPUT_TIMESTAMP_FORMAT).or(
-                        NaiveDateTime::parse_from_str(&s, HTML_INPUT_TIMESTAMP_FORMAT_N),
-                    )?,
-                )
+                data.date = NaiveDateTime::parse_from_str(&s, HTML_INPUT_TIMESTAMP_FORMAT)
+                    .or(NaiveDateTime::parse_from_str(
+                        &s,
+                        HTML_INPUT_TIMESTAMP_FORMAT_N,
+                    ))
+                    .inspect_err(|e| log::error!("{e}"))
+                    .ok()
             }
             UIExposureUpdate::Gps(value) => data.gps = Some(parse_gps(value)?),
         }
@@ -91,11 +97,11 @@ impl From<UIRollUpdate> for RollData {
         let mut data = Self::default();
 
         match update {
-            UIRollUpdate::Author(s) => data.author = (!s.is_empty()).then_some(s),
-            UIRollUpdate::Make(s) => data.make = (!s.is_empty()).then_some(s),
-            UIRollUpdate::Model(s) => data.model = (!s.is_empty()).then_some(s),
-            UIRollUpdate::Iso(s) => data.iso = (!s.is_empty()).then_some(s),
-            UIRollUpdate::Film(s) => data.description = (!s.is_empty()).then_some(s),
+            UIRollUpdate::Author(s) => data.author = Some(s),
+            UIRollUpdate::Make(s) => data.make = Some(s),
+            UIRollUpdate::Model(s) => data.model = Some(s),
+            UIRollUpdate::Iso(s) => data.iso = Some(s),
+            UIRollUpdate::Film(s) => data.description = Some(s),
         };
 
         data

@@ -182,8 +182,8 @@ pub fn encode_exif_ifd<W: Write + Seek>(
         dir.write_tag(Tag::Unknown(0x8827), iso)?;
     }
 
-    if let Some(shutter_speed) = &data.sspeed {
-        dir.write_tag(Tag::Unknown(0x9201), shutter_speed.parse::<u16>().unwrap())?;
+    if let Some(shutter_speed) = data.sspeed.as_ref().and_then(|s| s.parse::<u16>().ok()) {
+        dir.write_tag(Tag::Unknown(0x9201), shutter_speed)?;
     }
 
     if let Some(date) = &data.date {

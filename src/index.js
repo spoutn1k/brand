@@ -47,8 +47,4 @@ function set_marker(lat, lng) {
     marker = L.marker([lat, lng]).addTo(map);
 }
 
-function clear_storage() {
-    return window.wasmBindings.clear();
-}
-
 addEventListener("TrunkApplicationStarted", (e) => window.wasmBindings.setup());

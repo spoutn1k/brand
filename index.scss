@@ -64,11 +64,29 @@ body {
 
   grid-template-areas: "preview header" "preview exposures";
   grid-template-columns: 30% auto;
+  grid-template-rows: min-content 1fr;
 
   gap: 1rem;
 
   &.hidden {
     display: none;
+  }
+
+  div#notifications {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+
+    background-color: whitesmoke;
+    padding: 1rem;
+
+    &.hidden {
+      bottom: -100%;
+    }
+
+    *.hidden {
+      display: none;
+    }
   }
 
   div#preview {

@@ -4,7 +4,7 @@ use crate::Error;
 use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{Document, Element, Event, EventTarget, HtmlElement, Storage, Window};
 
-fn window() -> Result<Window, Error> {
+pub fn window() -> Result<Window, Error> {
     web_sys::window().ok_or(Error::NoWindow)
 }
 

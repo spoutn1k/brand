@@ -209,7 +209,7 @@ pub mod preview {
 
 pub mod exposure {
     use crate::{
-        Aquiesce, Error, EventTargetExt, QueryExt, SetEventHandlerExt, bindings,
+        Aquiesce, Error, EventTargetExt, QueryExt, SetEventHandlerExt,
         controller::{self, UIExposureUpdate, Update},
         models::{self, HTML_INPUT_TIMESTAMP_FORMAT},
         view::map,
@@ -218,8 +218,6 @@ pub mod exposure {
     use web_sys::{Event, HtmlInputElement};
 
     thread_local! {
-    static PROMPT_GPS: Closure<dyn Fn(Event)> = Closure::new(|_| bindings::prompt_coords());
-
     static ROTATE_LEFT: Closure<dyn Fn(Event)> =
         Closure::new(|_| controller::update(Update::RotateLeft).aquiesce());
 
@@ -288,10 +286,6 @@ pub mod exposure {
         "input#exposures-gps-input"
             .query_selector()?
             .on("input", &UPDATE_GPS)?;
-
-        "button#exposures-gps-button"
-            .query_selector()?
-            .on("click", &PROMPT_GPS)?;
 
         "rotate-left".query_id()?.on("click", &ROTATE_LEFT)?;
         "rotate-right".query_id()?.on("click", &ROTATE_RIGHT)?;

@@ -32,28 +32,6 @@ pub use helpers::{
     storage,
 };
 
-pub mod bindings {
-    use crate::{
-        JsError, JsResult, controller,
-        controller::{UIExposureUpdate, Update},
-    };
-    use wasm_bindgen::prelude::wasm_bindgen;
-
-    #[wasm_bindgen]
-    extern "C" {
-        fn set_marker(x: f64, y: f64);
-        pub fn prompt_coords();
-    }
-
-    #[wasm_bindgen]
-    pub async fn update_coords(lat: f64, lon: f64) -> JsResult {
-        controller::update(Update::Exposure(UIExposureUpdate::Gps(format!(
-            "{lat}, {lon}"
-        ))))
-        .js_error()
-    }
-}
-
 thread_local! {
 static KEY_HANDLER: Closure<dyn Fn(KeyboardEvent)> = Closure::new(|e: KeyboardEvent|{
     if e.key_code() == KeyEvent::DOM_VK_ESCAPE {

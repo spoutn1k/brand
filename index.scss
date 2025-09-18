@@ -147,6 +147,10 @@ body {
       &.hidden {
         display: none;
       }
+
+      #exposures-gps-map {
+        height: 20rem;
+      }
     }
 
     div#roll {

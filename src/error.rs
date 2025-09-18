@@ -54,6 +54,8 @@ pub enum Error {
     ChronoParse(#[from] chrono::ParseError),
     #[error("Bad GPS element format: {0}")]
     GpsParse(String),
+    #[error("Map already initialized")]
+    MapInit,
 }
 
 impl From<JsValue> for Error {

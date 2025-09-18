@@ -1,3 +1,5 @@
+mod map;
+
 pub mod editor {
     use crate::{
         Aquiesce, Error, QueryExt, fs, storage,
@@ -210,6 +212,7 @@ pub mod exposure {
         Aquiesce, Error, EventTargetExt, QueryExt, SetEventHandlerExt, bindings,
         controller::{self, UIExposureUpdate, Update},
         models::{self, HTML_INPUT_TIMESTAMP_FORMAT},
+        view::map,
     };
     use wasm_bindgen::prelude::*;
     use web_sys::{Event, HtmlInputElement};
@@ -293,6 +296,8 @@ pub mod exposure {
         "rotate-left".query_id()?.on("click", &ROTATE_LEFT)?;
         "rotate-right".query_id()?.on("click", &ROTATE_RIGHT)?;
 
+        map::setup().aquiesce();
+
         Ok(())
     }
 
@@ -335,6 +340,10 @@ pub mod exposure {
                     .unwrap_or_default(),
             );
 
+        if let Some((lat, lon)) = contents.gps {
+            map::show_location(lat, lon);
+        }
+
         Ok(())
     }
 
@@ -352,6 +361,8 @@ pub mod exposure {
             .query_selector()?
             .class_list()
             .remove_1("hidden")?;
+
+        map::invalidate();
 
         Ok(())
     }

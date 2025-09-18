@@ -8,11 +8,6 @@ use crate::{
 };
 use chrono::NaiveDateTime;
 use std::{convert::TryInto, path::PathBuf};
-use winnow::{
-    ModalResult, Parser,
-    ascii::{float, multispace0},
-    combinator::separated_pair,
-};
 
 mod notifications;
 
@@ -47,19 +42,8 @@ pub enum UIExposureUpdate {
     Lens(String),
     Comment(String),
     Date(String),
-    Gps(String),
-}
-
-fn parse_gps(r: String) -> Result<(f64, f64), Error> {
-    fn inner(line: &mut &str) -> ModalResult<(f64, f64)> {
-        separated_pair(float, (multispace0, ",", multispace0), float).parse_next(line)
-    }
-
-    let pair = inner
-        .parse(r.as_str())
-        .map_err(|e| Error::GpsParse(e.to_string()))?;
-
-    Ok(pair)
+    Gps(f64, f64),
+    GpsMap(f64, f64),
 }
 
 impl TryFrom<UIExposureUpdate> for ExposureSpecificData {
@@ -82,7 +66,9 @@ impl TryFrom<UIExposureUpdate> for ExposureSpecificData {
                     .inspect_err(|e| log::error!("{e}"))
                     .ok()
             }
-            UIExposureUpdate::Gps(value) => data.gps = Some(parse_gps(value)?),
+            UIExposureUpdate::Gps(lat, lng) | UIExposureUpdate::GpsMap(lat, lng) => {
+                data.gps = Some((lat, lng))
+            }
         }
 
         Ok(data)
@@ -114,6 +100,14 @@ fn exposure_update_field(change: UIExposureUpdate) -> Result<(), Error> {
             .get_mut(&target)
             .ok_or(Error::MissingKey(format!("exposure {target}")))?
             .update(change.clone().try_into()?);
+    }
+
+    if let UIExposureUpdate::GpsMap(lat, lng) | UIExposureUpdate::Gps(lat, lng) = change {
+        view::map::show_location(lat, lng);
+    }
+
+    if let UIExposureUpdate::GpsMap(lat, lng) = change {
+        view::exposure::set_gps_input_contents(&format!("{lat}, {lng}"))?;
     }
 
     storage.set_item("data", &serde_json::to_string(&data)?)?;

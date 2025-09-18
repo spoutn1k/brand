@@ -1,4 +1,4 @@
-mod map;
+pub mod map;
 
 pub mod editor {
     use crate::{
@@ -211,7 +211,7 @@ pub mod exposure {
     use crate::{
         Aquiesce, Error, EventTargetExt, QueryExt, SetEventHandlerExt,
         controller::{self, UIExposureUpdate, Update},
-        models::{self, HTML_INPUT_TIMESTAMP_FORMAT},
+        models::{self, HTML_INPUT_TIMESTAMP_FORMAT, parse_gps},
         view::map,
     };
     use wasm_bindgen::prelude::*;
@@ -262,7 +262,10 @@ pub mod exposure {
     static UPDATE_GPS: Closure<dyn Fn(Event)> = Closure::new(|event: Event| {
         event
             .target_into::<HtmlInputElement>()
-            .and_then(|t| controller::update(Update::Exposure(UIExposureUpdate::Gps(t.value()))))
+            .and_then(|t| parse_gps(t.value()))
+            .and_then(|(lat, lng)| {
+                controller::update(Update::Exposure(UIExposureUpdate::Gps(lat, lng)))
+            })
             .aquiesce()
     });
     }
@@ -341,6 +344,13 @@ pub mod exposure {
         Ok(())
     }
 
+    pub fn set_gps_input_contents(contents: &str) -> Result<(), Error> {
+        "exposures-gps-input"
+            .query_id_into::<HtmlInputElement>()?
+            .set_value(contents);
+
+        Ok(())
+    }
     pub fn hide() -> Result<(), Error> {
         "div#exposure-specific"
             .query_selector()?

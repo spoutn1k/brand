@@ -17,7 +17,7 @@ pub fn setup() -> Result<(), Error> {
         &MapOptions::default(),
     );
 
-    map.set_view(&LatLng::new(48.8566, 2.3522), 3.0);
+    map.set_view(&LatLng::new(48.8566, 2.3522), 4.0);
     TileLayer::new("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").add_to(&map);
     map.on_mouse_click(Box::new(handle_click));
 
@@ -38,6 +38,12 @@ pub fn invalidate() {
 pub fn show_location(lat: f64, lon: f64) {
     MAP.with(|oc| {
         oc.get().map(|m| {
+            let mut zoom = m.get_zoom();
+
+            if zoom.lt(&8.0) {
+                zoom = 8.0;
+            }
+
             MARKERS.with(|oc| oc.get_or_init(LayerGroup::new).clear_layers());
 
             {
@@ -46,12 +52,10 @@ pub fn show_location(lat: f64, lon: f64) {
 
                 MARKERS.with(|oc| oc.get().map(|lg| lg.add_layer(&marker)));
 
-                m.pan_to(&location);
+                m.fly_to(&location, zoom);
             }
 
             MARKERS.with(|oc| oc.get().map(|lg| lg.add_to(&m)));
-
-            m.set_zoom(8.0);
         });
     })
 }
@@ -61,8 +65,5 @@ fn handle_click(e: MouseEvent) {
     let lat = position.lat();
     let lon = position.lng();
 
-    controller::update(Update::Exposure(UIExposureUpdate::Gps(format!(
-        "{lat}, {lon}"
-    ))))
-    .aquiesce();
+    controller::update(Update::Exposure(UIExposureUpdate::GpsMap(lat, lon))).aquiesce();
 }

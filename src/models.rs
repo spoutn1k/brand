@@ -8,8 +8,8 @@ use std::{
     path::PathBuf,
 };
 use winnow::{
-    ModalResult, Parser as _,
-    ascii::{alphanumeric1, float, tab},
+    ModalResult, Parser,
+    ascii::{alphanumeric1, float, multispace0, tab},
     combinator::{opt, preceded, separated_pair, seq},
     error::{StrContext, StrContextValue},
     token::take_till,
@@ -120,6 +120,18 @@ pub fn read_tse<R: std::io::BufRead>(buffer: R) -> Result<Data, Error> {
 pub struct Data {
     pub roll: RollData,
     pub exposures: BTreeMap<u32, ExposureSpecificData>,
+}
+
+pub fn parse_gps(r: String) -> Result<(f64, f64), Error> {
+    fn inner(line: &mut &str) -> ModalResult<(f64, f64)> {
+        separated_pair(float, (multispace0, ",", multispace0), float).parse_next(line)
+    }
+
+    let pair = inner
+        .parse(r.as_str())
+        .map_err(|e| Error::GpsParse(e.to_string()))?;
+
+    Ok(pair)
 }
 
 impl Data {

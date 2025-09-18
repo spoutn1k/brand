@@ -9,112 +9,15 @@ use std::{
 };
 use winnow::{
     ModalResult, Parser,
-    ascii::{alphanumeric1, float, multispace0, tab},
-    combinator::{opt, preceded, separated_pair, seq},
-    error::{StrContext, StrContextValue},
-    token::take_till,
+    ascii::{float, multispace0},
+    combinator::separated_pair,
 };
 
+pub mod tse;
+
 pub static MAX_EXPOSURES: u32 = 80;
-static TIMESTAMP_FORMAT: &str = "%Y %m %d %H %M %S";
 pub static HTML_INPUT_TIMESTAMP_FORMAT: &str = "%Y-%m-%dT%H:%M:%S";
 pub static HTML_INPUT_TIMESTAMP_FORMAT_N: &str = "%Y-%m-%dT%H:%M";
-
-mod tse_date_format {
-    use chrono::NaiveDateTime;
-    use serde::{self, Deserialize, Deserializer, Serializer};
-    use serde_with::{DeserializeAs, SerializeAs};
-
-    pub struct Naive;
-
-    const FORMAT: &str = "%Y %m %d %H %M %S";
-
-    impl SerializeAs<NaiveDateTime> for Naive {
-        fn serialize_as<S>(value: &NaiveDateTime, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: Serializer,
-        {
-            let s = value.format(FORMAT).to_string();
-            serializer.serialize_str(&s)
-        }
-    }
-
-    impl<'de> DeserializeAs<'de, NaiveDateTime> for Naive {
-        fn deserialize_as<D>(deserializer: D) -> Result<NaiveDateTime, D::Error>
-        where
-            D: Deserializer<'de>,
-        {
-            let s = String::deserialize(deserializer)?;
-            NaiveDateTime::parse_from_str(&s, FORMAT).map_err(serde::de::Error::custom)
-        }
-    }
-}
-
-pub fn expected(reason: &'static str) -> StrContext {
-    StrContext::Expected(StrContextValue::Description(reason))
-}
-
-fn exposure_tsv(input: &mut &str) -> ModalResult<ExposureSpecificData> {
-    seq! {ExposureSpecificData {
-        sspeed: opt(alphanumeric1.map(String::from)).context(expected("Shutter speed")),
-        _: tab,
-        aperture: opt(preceded(opt("f"), float) .map(|m: f32| m.to_string()))
-            .context(expected("Aperture")),
-        _: tab,
-        lens: opt(alphanumeric1.map(String::from)).context(expected("Lens")),
-        _: tab,
-        comment: take_till(0.., |c| c == '\t')
-            .map(|m| Some(String::from(m)))
-            .context(expected("Comment")),
-        _: tab,
-        date: take_till(0.., |c| c == '\t')
-            .map(|s: &str| {
-                NaiveDateTime::parse_from_str(s, TIMESTAMP_FORMAT).ok()
-            })
-            .context(expected("Date")),
-        _: tab,
-        gps: opt(separated_pair(float, ", ", float)),
-    }}
-    .parse_next(input)
-}
-
-pub fn read_tse<R: std::io::BufRead>(buffer: R) -> Result<Data, Error> {
-    let Data {
-        mut roll,
-        mut exposures,
-    } = Data::default();
-
-    let mut reader = buffer.lines();
-
-    let mut index = 1;
-    while let Some(line) = reader.next().transpose()? {
-        if let Some(stripped) = line.strip_prefix('#') {
-            let space = stripped.find(' ').unwrap();
-            let (marker, value) = stripped.split_at(space);
-
-            match marker {
-                "Make" => roll.make = Some(value.trim().into()),
-                "Model" => roll.model = Some(value.trim().into()),
-                "Description" => roll.description = Some(value.trim().into()),
-                "Author" => roll.author = Some(value.trim().into()),
-                "ISO" => roll.iso = Some(value.trim().into()),
-                &_ => (),
-            }
-
-            continue;
-        }
-
-        if line.is_empty() || line.starts_with(';') {
-            continue;
-        }
-
-        let exposure = exposure_tsv(&mut line.as_str()).map_err(|_| Error::ParseTse)?;
-        exposures.insert(index, exposure);
-        index += 1;
-    }
-
-    Ok(Data { roll, exposures })
-}
 
 #[derive(Clone, Default, Debug, Deserialize, Serialize)]
 pub struct Data {
@@ -210,7 +113,7 @@ pub struct ExposureSpecificData {
     pub aperture: Option<String>,
     pub lens: Option<String>,
     pub comment: Option<String>,
-    #[serde_as(as = "Option<tse_date_format::Naive>")]
+    #[serde_as(as = "Option<tse::date_format::Naive>")]
     pub date: Option<NaiveDateTime>,
     pub gps: Option<(f64, f64)>,
 }
@@ -631,57 +534,3 @@ impl From<PathBuf> for FileKind {
 }
 
 pub type Meta = HashMap<PathBuf, FileMetadata>;
-
-#[test]
-fn test_read_tse() {
-    let tse = r#"
-	2.8	50mm	Balade dans Paris	2025 04 10 14 00 00	48.86467241, 2.32135534
-	f1.8	50mm	Balade dans Paris	2025 04 10 14 00 00	48.86467241, 2.32135534
-		50mm	Balade dans Paris	2025 04 10 14 00 00	48.86351491, 2.31966019
-		50mm	Balade dans Paris	2025 04 10 14 00 00	48.84697524, 2.33650446
-		85mm	Balade dans Paris	2025 04 10 14 00 00	48.84697524, 2.33650446
-		85mm	Balade dans Paris	2025 04 10 14 00 00	48.84697524, 2.33650446
-		85mm	Balade dans Paris	2025 04 10 14 00 00	48.84697524, 2.33650446
-		85mm	Balade dans Paris	2025 04 10 14 00 00	48.8472506, 2.34434724
-		50mm	Balade dans Paris	2025 04 10 14 00 00	48.8472506, 2.34434724
-		85mm	Balade dans Paris	2025 04 10 14 00 00	48.85359036, 2.34680414
-		50mm	Tourisme	2025 04 15 16 00 00	48.86167979, 2.29603529
-		50mm	Tourisme	2025 04 15 16 00 00	48.86167979, 2.29603529
-		50mm	Tourisme	2025 04 15 16 00 00	48.86167979, 2.29603529
-		50mm	Tourisme	2025 04 15 16 00 00	48.86167979, 2.29603529
-		20mm	Ile de la cité	2025 04 17 18 00 00	48.85519988, 2.34651446
-		20mm	Ile de la cité	2025 04 17 18 00 00	48.85519988, 2.34651446
-		85mm	Balade	2025 04 18 17 00 00	48.87177211, 2.36459255
-		85mm	Balade	2025 04 18 17 00 00	48.87177211, 2.36459255
-		85mm	Balade	2025 04 18 17 00 00	48.87177211, 2.36459255
-		85mm	Balade	2025 04 18 17 00 00	48.87177211, 2.36459255
-			Scenes	2025 04 20 16 00 00	48.88082524, 2.36210346
-		50mm	Scenes	2025 04 21 18 00 00	48.85385155, 2.36964583
-		50mm	Hasard ludique	2025 04 26 17 00 00	48.89575261, 2.32966483
-		50mm	Hasard ludique	2025 04 26 17 00 00	48.89575261, 2.32966483
-		50mm	Hasard ludique	2025 04 26 17 00 00	48.89575261, 2.32966483
-		50mm	Hasard ludique	2025 04 26 17 00 00	48.89575261, 2.32966483
-		50mm	Hasard ludique	2025 04 26 17 00 00	48.89575261, 2.32966483
-		50mm	Hasard ludique	2025 04 26 17 00 00	48.89575261, 2.32966483
-		50mm	Hasard ludique	2025 04 26 17 00 00	48.89575261, 2.32966483
-		50mm	Hasard ludique	2025 04 26 17 00 00	48.89575261, 2.32966483
-		50mm	Hasard ludique	2025 04 26 17 00 00	48.89575261, 2.32966483
-		50mm	Hasard ludique	2025 04 26 17 00 00	48.89575261, 2.32966483
-		50mm	Hasard ludique	2025 04 26 17 00 00	48.89575261, 2.32966483
-		50mm	Hasard ludique	2025 04 26 17 00 00	48.89575261, 2.32966483
-		50mm	Hasard ludique	2025 04 26 17 00 00	48.89575261, 2.32966483
-		50mm	Hasard ludique	2025 04 26 17 00 00	48.89575261, 2.32966483
-		50mm	Hasard ludique	2025 04 26 17 00 00	48.89575261, 2.32966483
-		50mm	Repu	2025 04 27 17 00 00	48.86817299, 2.36290812
-#Description Kodak Portra
-#ImageDescription Kodak Portra
-#Artist Jean-Baptiste Skutnik
-#Author Jean-Baptiste Skutnik
-#ISO 160
-#Make Nikon
-#Model F3
-; vim: set list number noexpandtab:
-"#;
-
-    insta::assert_debug_snapshot!(read_tse(tse.as_bytes()).unwrap());
-}

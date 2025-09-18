@@ -20,8 +20,8 @@ pub enum Error {
     Image(#[from] image::ImageError),
     #[error(transparent)]
     ParseInt(#[from] std::num::ParseIntError),
-    #[error("Failed to parse TSE file")]
-    ParseTse,
+    #[error("Failed to parse TSE file: {0}")]
+    ParseTse(String),
     #[error(transparent)]
     Logging(#[from] log::SetLoggerError),
     #[error(transparent)]

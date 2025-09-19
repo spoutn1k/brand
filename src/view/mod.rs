@@ -1,8 +1,8 @@
-pub mod map;
-use web_sys::Event;
-
 use crate::{controller, controller::Update, error::Aquiesce};
 use wasm_bindgen::closure::Closure;
+use web_sys::Event;
+
+pub mod map;
 
 fn update(kind: Update) -> Closure<dyn Fn(Event)> {
     Closure::new(move |_| controller::update(kind.clone()).aquiesce())

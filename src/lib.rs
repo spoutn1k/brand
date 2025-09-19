@@ -210,8 +210,6 @@ async fn setup_editor_from_files(files: &[FileSystemFileEntry]) -> Result<(), Er
     web_fs::create_dir("originals").await.aquiesce();
     web_fs::create_dir("processed").await.aquiesce();
 
-    let earlier = instant::SystemTime::now();
-
     let (tx, mut rx) = mpsc::channel(80);
     for ((file_id, mut meta), entry) in metadata.iter().cloned().zip(images) {
         let name = entry.name();
@@ -250,17 +248,9 @@ async fn setup_editor_from_files(files: &[FileSystemFileEntry]) -> Result<(), Er
 
     drop(tx);
 
+    view::landing::hide().and(view::editor::show())?;
+
     while rx.next().await.is_some() {}
-
-    let now = instant::SystemTime::now()
-        .duration_since(earlier)
-        .unwrap_or_default()
-        .as_secs_f32();
-
-    log::debug!("Imported files in {now}s");
-
-    "landing".query_id()?.class_list().add_1("hidden")?;
-    "editor".query_id()?.class_list().remove_1("hidden")?;
 
     generate_thumbnails().await?;
 
@@ -323,25 +313,27 @@ async fn generate_thumbnails() -> Result<(), Error> {
 
 #[wasm_bindgen]
 pub fn setup() -> JsResult {
+    // Listen for keypresses and handle them accordingly
+    document()?.on("keydown", &KEY_HANDLER)?;
+
     view::preview::setup()
         .and(view::landing::setup())
         .and(view::exposure::setup())
         .and(view::roll::setup())?;
-    controller::update(Update::SelectionClear).aquiesce();
 
     wasm_bindgen_futures::spawn_local(async { controller::handle_progress().await.aquiesce() });
 
+    wasm_bindgen_futures::spawn_local(async { view::landing::landing_stats().await.aquiesce() });
+
     if let Some(data) = storage()?.get_item("data")? {
         let data: Data = serde_json::from_str(&data).js_error()?;
-        wasm_bindgen_futures::spawn_local(
-            async move { setup_editor_from_data(data).await.aquiesce() },
-        );
+        wasm_bindgen_futures::spawn_local(async move {
+            setup_editor_from_data(data)
+                .await
+                .and(controller::update(Update::SelectionClear))
+                .aquiesce();
+        });
     }
-
-    // Listen for keypresses and handle them accordingly
-    document()?.on("keydown", &KEY_HANDLER)?;
-
-    wasm_bindgen_futures::spawn_local(async { view::landing::landing_stats().await.aquiesce() });
 
     Ok(())
 }

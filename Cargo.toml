@@ -14,8 +14,9 @@ console_log = { version = "1.0.0", features = ["color"] }
 futures = "0.3.31"
 image = { git = "https://github.com/image-rs/image", version = "0.25.6" }
 instant = { version = "0.1.13", features = ["wasm-bindgen"] }
+itertools = "0.14.0"
 js-sys = "0.3.69"
-leaflet = "0.4.1"
+leaflet = { version = "0.4.1", path = "../leaflet-rs" }
 log = "0.4.21"
 num-rational = "0.4.2"
 regex = "1.10.5"

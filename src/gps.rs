@@ -1,4 +1,10 @@
+use crate::Error;
 use tiff::{encoder::Rational, tags::Tag};
+use winnow::{
+    ModalResult, Parser,
+    ascii::{float, multispace0},
+    combinator::separated_pair,
+};
 
 pub trait GpsRef {
     fn format(&self) -> Vec<Rational>;
@@ -58,4 +64,16 @@ impl From<GpsTag> for u16 {
             GpsTag::GPSLongitude => 0x0004,
         }
     }
+}
+
+pub fn parse_gps(r: String) -> Result<(f64, f64), Error> {
+    fn inner(line: &mut &str) -> ModalResult<(f64, f64)> {
+        separated_pair(float, (multispace0, ",", multispace0), float).parse_next(line)
+    }
+
+    let pair = inner
+        .parse(r.as_str())
+        .map_err(|e| Error::GpsParse(e.to_string()))?;
+
+    Ok(pair)
 }

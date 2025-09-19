@@ -103,7 +103,7 @@ fn exposure_update_field(change: UIExposureUpdate) -> Result<(), Error> {
     }
 
     if let UIExposureUpdate::GpsMap(lat, lng) | UIExposureUpdate::Gps(lat, lng) = change {
-        view::map::show_location(lat, lng);
+        view::map::show_location(&[(lat, lng)]);
     }
 
     if let UIExposureUpdate::GpsMap(lat, lng) = change {
@@ -193,16 +193,27 @@ fn show_selection(selection: &Selection) -> Result<(), Error> {
         .and_then(|s| serde_json::from_str(&s).map_err(Error::from))
         .unwrap_or_default();
 
-    match selection.items().last() {
-        Some(index) => {
-            view::exposure::set_contents(
-                format!("Exposure {selection}"),
+    match selection.items().len() {
+        0 => view::roll::show().and(view::exposure::hide()),
+        1 => {
+            let index = selection.items().last().cloned().unwrap_or_default();
+            view::exposure::one(
+                index,
                 &data.exposures.get(&index).cloned().unwrap_or_default(),
-            )?;
-            view::roll::hide()?;
-            view::exposure::show()
+            )
+            .and(view::roll::hide())
+            .and(view::exposure::show())
         }
-        None => view::roll::show().and(view::exposure::hide()),
+        _ => {
+            let contents = selection
+                .items()
+                .iter()
+                .filter_map(|i| data.exposures.get(i).cloned())
+                .collect::<Vec<_>>();
+            view::exposure::multiple(selection, contents.as_slice())
+                .and(view::roll::hide())
+                .and(view::exposure::show())
+        }
     }
 }
 

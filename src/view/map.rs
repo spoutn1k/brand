@@ -2,7 +2,7 @@ use crate::{
     Aquiesce, Error, QueryExt,
     controller::{self, UIExposureUpdate, Update},
 };
-use leaflet::{LatLng, LayerGroup, Map, MapOptions, Marker, MouseEvent, TileLayer};
+use leaflet::{LatLng, LatLngBounds, LayerGroup, Map, MapOptions, Marker, MouseEvent, TileLayer};
 use std::cell::OnceCell;
 use web_sys::HtmlElement;
 
@@ -21,6 +21,14 @@ pub fn setup() -> Result<(), Error> {
     TileLayer::new("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").add_to(&map);
     map.on_mouse_click(Box::new(handle_click));
 
+    // Generate the layer group managing the markers
+    let layers = LayerGroup::new();
+    layers.add_to(&map);
+
+    MARKERS
+        .with(|oc| oc.set(layers))
+        .map_err(|_| Error::MapInit)?;
+
     MAP.try_with(|oc| oc.set(map))?
         .map_err(|_| Error::MapInit)?;
 
@@ -35,27 +43,28 @@ pub fn invalidate() {
     })
 }
 
-pub fn show_location(lat: f64, lon: f64) {
+pub fn show_location(pos: &[(f64, f64)]) {
+    // Get thread-local map
     MAP.with(|oc| {
         oc.get().map(|m| {
-            let mut zoom = m.get_zoom();
+            // Generate a Bounds object to store the positions
+            let bounds = LatLngBounds::new_from_list(&js_sys::Array::new());
 
-            if zoom.lt(&8.0) {
-                zoom = 8.0;
-            }
-
+            // Generate or access the layer group managing the markers
             MARKERS.with(|oc| oc.get_or_init(LayerGroup::new).clear_layers());
 
-            {
-                let location = LatLng::new(lat, lon);
-                let marker = Marker::new(&location);
+            for (lat, lng) in pos.iter().cloned() {
+                let location = LatLng::new(lat, lng);
 
-                MARKERS.with(|oc| oc.get().map(|lg| lg.add_layer(&marker)));
+                // Add the location to the bounds
+                bounds.extend(&location);
 
-                m.fly_to(&location, zoom);
+                // Add a layer with the marker for this location to the layer group
+                MARKERS.with(|oc| oc.get().map(|lg| lg.add_layer(&Marker::new(&location))));
             }
 
-            MARKERS.with(|oc| oc.get().map(|lg| lg.add_to(&m)));
+            // Display the markers using the bounds
+            m.fly_to_bounds(&bounds);
         });
     })
 }

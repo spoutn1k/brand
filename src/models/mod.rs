@@ -1,4 +1,3 @@
-use crate::Error;
 use chrono::{DateTime, NaiveDateTime};
 use image::ImageFormat;
 use serde::{Deserialize, Serialize};
@@ -6,11 +5,6 @@ use std::{
     collections::{BTreeMap, HashMap},
     fmt::{self, Display, Formatter},
     path::PathBuf,
-};
-use winnow::{
-    ModalResult, Parser,
-    ascii::{float, multispace0},
-    combinator::separated_pair,
 };
 
 pub mod tse;
@@ -23,18 +17,6 @@ pub static HTML_INPUT_TIMESTAMP_FORMAT_N: &str = "%Y-%m-%dT%H:%M";
 pub struct Data {
     pub roll: RollData,
     pub exposures: BTreeMap<u32, ExposureSpecificData>,
-}
-
-pub fn parse_gps(r: String) -> Result<(f64, f64), Error> {
-    fn inner(line: &mut &str) -> ModalResult<(f64, f64)> {
-        separated_pair(float, (multispace0, ",", multispace0), float).parse_next(line)
-    }
-
-    let pair = inner
-        .parse(r.as_str())
-        .map_err(|e| Error::GpsParse(e.to_string()))?;
-
-    Ok(pair)
 }
 
 impl Data {

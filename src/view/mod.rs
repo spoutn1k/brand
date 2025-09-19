@@ -211,9 +211,12 @@ pub mod exposure {
     use crate::{
         Aquiesce, Error, EventTargetExt, QueryExt, SetEventHandlerExt,
         controller::{self, UIExposureUpdate, Update},
-        models::{self, HTML_INPUT_TIMESTAMP_FORMAT, parse_gps},
+        gps::parse_gps,
+        models::{self, HTML_INPUT_TIMESTAMP_FORMAT, Selection},
         view::map,
     };
+    use itertools::Itertools;
+    use std::collections::BTreeSet;
     use wasm_bindgen::prelude::*;
     use web_sys::{Event, HtmlInputElement};
 
@@ -298,13 +301,10 @@ pub mod exposure {
         Ok(())
     }
 
-    pub fn set_contents(
-        title: String,
-        contents: &models::ExposureSpecificData,
-    ) -> Result<(), Error> {
+    pub fn one(index: u32, contents: &models::ExposureSpecificData) -> Result<(), Error> {
         "div#exposures-title"
             .query_selector()?
-            .set_text_content(Some(title.as_str()));
+            .set_text_content(Some(&format!("Exposure {index}")));
 
         "exposures-sspeed-input"
             .query_id_into::<HtmlInputElement>()?
@@ -338,8 +338,75 @@ pub mod exposure {
             );
 
         if let Some((lat, lon)) = contents.gps {
-            map::show_location(lat, lon);
+            map::show_location(&[(lat, lon)]);
         }
+
+        Ok(())
+    }
+
+    pub fn multiple(
+        selection: &Selection,
+        contents: &[models::ExposureSpecificData],
+    ) -> Result<(), Error> {
+        "div#exposures-title"
+            .query_selector()?
+            .set_text_content(Some(&format!("Exposures {selection}")));
+
+        "exposures-sspeed-input"
+            .query_id_into::<HtmlInputElement>()?
+            .set_value("");
+        let sspeeds = contents
+            .iter()
+            .filter_map(|e| e.sspeed.as_deref())
+            .collect::<BTreeSet<_>>();
+        "exposures-sspeed-input"
+            .query_id_into::<HtmlInputElement>()?
+            .set_placeholder(&sspeeds.iter().join(" | "));
+
+        "exposures-aperture-input"
+            .query_id_into::<HtmlInputElement>()?
+            .set_value("");
+
+        "exposures-lens-input"
+            .query_id_into::<HtmlInputElement>()?
+            .set_value("");
+        let lenses = contents
+            .iter()
+            .filter_map(|e| e.lens.as_deref())
+            .collect::<BTreeSet<_>>();
+        "exposures-lens-input"
+            .query_id_into::<HtmlInputElement>()?
+            .set_placeholder(&lenses.iter().join(" | "));
+
+        "exposures-comment-input"
+            .query_id_into::<HtmlInputElement>()?
+            .set_value("");
+        let comments = contents
+            .iter()
+            .filter_map(|e| e.comment.as_deref())
+            .collect::<BTreeSet<_>>();
+        "exposures-comment-input"
+            .query_id_into::<HtmlInputElement>()?
+            .set_placeholder(&comments.iter().join(" | "));
+
+        "exposures-date-input"
+            .query_id_into::<HtmlInputElement>()?
+            .set_value("");
+
+        let gps_input = "exposures-gps-input".query_id_into::<HtmlInputElement>()?;
+        gps_input.set_value("");
+        let positions = contents
+            .iter()
+            .filter_map(|e| e.gps.map(|(lat, lng)| format!("{lat}, {lng}")))
+            .collect::<BTreeSet<_>>();
+
+        match positions.len() {
+            0 => (),
+            1 => gps_input.set_value(positions.first().map(|s| s.as_str()).unwrap_or_default()),
+            _ => gps_input.set_placeholder("multiple"),
+        }
+
+        map::show_location(&contents.iter().filter_map(|c| c.gps).collect::<Vec<_>>());
 
         Ok(())
     }

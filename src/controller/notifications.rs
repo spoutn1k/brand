@@ -7,7 +7,7 @@ use std::cell::{OnceCell, RefCell};
 use wasm_bindgen::{JsCast, closure::Closure};
 
 thread_local! {
-static CHANNEL: OnceCell<Sender<Progress>> = OnceCell::new();
+static CHANNEL: OnceCell<Sender<Progress>> = const {OnceCell::new()};
 
 static MANAGER: RefCell<Manager> = RefCell::new(Default::default());
 
@@ -90,7 +90,7 @@ impl Manager {
                 )
             })??;
 
-            thumbnails.set_text_content(Some(&format!("Generating thumbnails done.")));
+            thumbnails.set_text_content(Some("Generating thumbnails done."));
         }
 
         let processing = "processing".query_id()?;
@@ -114,7 +114,7 @@ impl Manager {
                 )
             })??;
 
-            processing.set_text_content(Some(&format!("Processing done.")));
+            processing.set_text_content(Some("Processing done."));
         }
 
         if in_progress {

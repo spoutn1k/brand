@@ -269,9 +269,8 @@ fn undo() -> Result<(), Error> {
     let storage = storage()?;
     let selection = get_selection()?;
 
-    match HISTORY.with_borrow_mut(|h| h.pop()) {
-        Some(data) => storage.set_item("data", &serde_json::to_string(&data)?)?,
-        None => (),
+    if let Some(data) = HISTORY.with_borrow_mut(|h| h.pop()) {
+        storage.set_item("data", &serde_json::to_string(&data)?)?
     }
 
     show_selection(&selection).aquiesce();

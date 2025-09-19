@@ -396,7 +396,7 @@ pub mod exposure {
             _ => gps_input.set_placeholder("multiple"),
         }
 
-        if positions.len() > 0 {
+        if !positions.is_empty() {
             map::show_location(&contents.iter().filter_map(|c| c.gps).collect::<Vec<_>>());
         } else {
             map::reset();

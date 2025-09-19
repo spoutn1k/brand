@@ -7,8 +7,8 @@ use std::cell::OnceCell;
 use web_sys::HtmlElement;
 
 thread_local! {
-    static MAP: OnceCell<Map> = OnceCell::new();
-    static MARKERS: OnceCell<LayerGroup> = OnceCell::new();
+static MAP: OnceCell<Map> = const { OnceCell::new() };
+static MARKERS: OnceCell<LayerGroup> = const { OnceCell::new() };
 }
 
 pub fn setup() -> Result<(), Error> {
@@ -39,24 +39,24 @@ pub fn setup() -> Result<(), Error> {
 /// Reset map on Paris with a zoom of 4.0
 pub fn reset() {
     MAP.with(|oc| {
-        oc.get().map(|map| {
+        if let Some(map) = oc.get() {
             map.set_view(&LatLng::new(48.8566, 2.3522), 4.0);
-        });
+        }
     })
 }
 
 pub fn invalidate() {
     MAP.with(|oc| {
-        oc.get().map(|m| {
+        if let Some(m) = oc.get() {
             m.invalidate_size(true);
-        });
+        }
     })
 }
 
 pub fn show_location(pos: &[(f64, f64)]) {
     // Get thread-local map
     MAP.with(|oc| {
-        oc.get().map(|m| {
+        if let Some(m) = oc.get() {
             // Generate a Bounds object to store the positions
             let bounds = LatLngBounds::new_from_list(&js_sys::Array::new());
 
@@ -75,7 +75,7 @@ pub fn show_location(pos: &[(f64, f64)]) {
 
             // Display the markers using the bounds
             m.fly_to_bounds(&bounds);
-        });
+        }
     })
 }
 

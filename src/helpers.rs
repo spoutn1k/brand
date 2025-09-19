@@ -35,13 +35,13 @@ pub trait QueryExt {
     fn query_id_into<T: JsCast>(&self) -> Result<T, Error>;
 
     fn query_id(&self) -> Result<Element, Error> {
-        Self::query_id_into(&self)
+        Self::query_id_into(self)
     }
 
     fn query_selector_into<T: JsCast>(&self) -> Result<T, Error>;
 
     fn query_selector(&self) -> Result<Element, Error> {
-        Self::query_selector_into(&self)
+        Self::query_selector_into(self)
     }
 }
 

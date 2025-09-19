@@ -167,7 +167,7 @@ impl Display for Selection {
             write!(f, "{}", r.to_string())?
         }
 
-        while let Some(r) = iter.next() {
+        for r in iter {
             write!(f, ", {}", r.to_string())?
         }
 

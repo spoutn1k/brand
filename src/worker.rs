@@ -110,7 +110,7 @@ impl Execution {
             *state.done.borrow_mut() += 1;
 
             let mut tx = self.tx.clone();
-            let count = self.done.borrow().clone();
+            let count = *self.done.borrow();
             wasm_bindgen_futures::spawn_local(async move {
                 tx.send(count).await.aquiesce();
             });

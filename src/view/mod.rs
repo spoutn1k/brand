@@ -227,6 +227,9 @@ pub mod exposure {
     static ROTATE_RIGHT: Closure<dyn Fn(Event)> =
         Closure::new(|_| controller::update(Update::RotateRight).aquiesce());
 
+    static UNDO: Closure<dyn Fn(Event)> =
+        Closure::new(|_| controller::update(Update::Undo).aquiesce());
+
     static UPDATE_SSPEED: Closure<dyn Fn(Event)> = Closure::new(|event: Event| {
         event
             .target_into::<HtmlInputElement>()
@@ -295,6 +298,7 @@ pub mod exposure {
 
         "rotate-left".query_id()?.on("click", &ROTATE_LEFT)?;
         "rotate-right".query_id()?.on("click", &ROTATE_RIGHT)?;
+        "undo".query_id()?.on("click", &UNDO)?;
 
         map::setup().aquiesce();
 
@@ -428,6 +432,18 @@ pub mod exposure {
 
         Ok(())
     }
+
+    pub fn allow_undo(permission: bool) -> Result<(), Error> {
+        let button = "undo".query_id()?;
+        if permission {
+            button.remove_attribute("disabled")?;
+        } else {
+            button.set_attribute("disabled", "1")?;
+        }
+
+        Ok(())
+    }
+
     pub fn hide() -> Result<(), Error> {
         "div#exposure-specific"
             .query_selector()?

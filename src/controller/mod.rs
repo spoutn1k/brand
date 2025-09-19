@@ -2,16 +2,20 @@ use crate::{
     Aquiesce, Error, Orientation, QueryExt, SessionStorageExt,
     models::{
         Data, ExposureSpecificData, FileMetadata, HTML_INPUT_TIMESTAMP_FORMAT,
-        HTML_INPUT_TIMESTAMP_FORMAT_N, Meta, RollData, Selection, WorkerCompressionAnswer,
+        HTML_INPUT_TIMESTAMP_FORMAT_N, History, Meta, RollData, Selection, WorkerCompressionAnswer,
     },
-    storage, view,
+    storage, view, worker,
 };
 use chrono::NaiveDateTime;
-use std::{convert::TryInto, path::PathBuf};
+use std::{cell::RefCell, convert::TryInto, path::PathBuf};
 
 mod notifications;
 
 pub use notifications::{Progress, handle_progress, notifier};
+
+thread_local! {
+    static HISTORY: RefCell<History<Data>> = RefCell::new(Default::default());
+}
 
 #[derive(Debug)]
 pub enum Update {
@@ -24,6 +28,7 @@ pub enum Update {
     FileMetadata(PathBuf, FileMetadata),
     RotateLeft,
     RotateRight,
+    Undo,
 }
 
 #[derive(Debug, Clone)]
@@ -94,6 +99,7 @@ impl From<UIRollUpdate> for RollData {
 fn exposure_update_field(change: UIExposureUpdate) -> Result<(), Error> {
     let storage = storage()?;
     let mut data: Data = serde_json::from_str(&storage.get_existing("data")?)?;
+    let backup = data.clone();
 
     for target in get_selection()?.items() {
         data.exposures
@@ -101,6 +107,11 @@ fn exposure_update_field(change: UIExposureUpdate) -> Result<(), Error> {
             .ok_or(Error::MissingKey(format!("exposure {target}")))?
             .update(change.clone().try_into()?);
     }
+
+    HISTORY.with_borrow_mut(|history| history.record(backup));
+    view::exposure::allow_undo(HISTORY.with_borrow(|h| h.undoable()))?;
+
+    storage.set_item("data", &serde_json::to_string(&data)?)?;
 
     if let UIExposureUpdate::GpsMap(lat, lng) | UIExposureUpdate::Gps(lat, lng) = change {
         view::map::show_location(&[(lat, lng)]);
@@ -110,13 +121,11 @@ fn exposure_update_field(change: UIExposureUpdate) -> Result<(), Error> {
         view::exposure::set_gps_input_contents(&format!("{lat}, {lng}"))?;
     }
 
-    storage.set_item("data", &serde_json::to_string(&data)?)?;
-
     Ok(())
 }
 
 async fn exposure_update_image(meta: FileMetadata) -> Result<(), Error> {
-    let WorkerCompressionAnswer(index, base64) = crate::worker::compress_image(meta).await?;
+    let WorkerCompressionAnswer(index, base64) = worker::compress_image(meta).await?;
 
     format!("exposure-{index}-preview")
         .query_id()?
@@ -255,6 +264,21 @@ fn manage_selection(operation: Update) -> Result<(), Error> {
     Ok(())
 }
 
+fn undo() -> Result<(), Error> {
+    let storage = storage()?;
+    let selection = get_selection()?;
+
+    match HISTORY.with_borrow_mut(|h| h.pop()) {
+        Some(data) => storage.set_item("data", &serde_json::to_string(&data)?)?,
+        None => (),
+    }
+
+    show_selection(&selection).aquiesce();
+    view::exposure::allow_undo(HISTORY.with_borrow(|h| h.undoable()))?;
+
+    Ok(())
+}
+
 async fn rotate(update: Update) -> Result<(), Error> {
     let selection = get_selection()?;
 
@@ -284,7 +308,7 @@ async fn rotate_id(index: u32, orientation: Orientation) -> Result<(), Error> {
 
     storage.set_item("metadata", &serde_json::to_string(&data)?)?;
 
-    exposure_update_image(meta).await.aquiesce();
+    exposure_update_image(meta).await?;
 
     Ok(())
 }
@@ -314,5 +338,6 @@ pub fn update(event: Update) -> Result<(), Error> {
 
             Ok(())
         }
+        Update::Undo => undo(),
     }
 }

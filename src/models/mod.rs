@@ -6,9 +6,11 @@ use std::{
     path::PathBuf,
 };
 
+mod history;
 mod selection;
 mod tse;
 
+pub use history::History;
 pub use selection::Selection;
 pub use tse::{TseFormat, read_tse};
 

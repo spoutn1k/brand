@@ -1,6 +1,5 @@
-use std::thread::LocalKey;
-
 use crate::Error;
+use std::thread::LocalKey;
 use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{Document, Element, Event, EventTarget, HtmlElement, Storage, Window};
 

@@ -1,18 +1,12 @@
 use crate::{Aquiesce, Error, JsError, JsResult, QueryExt, helpers::window};
 use async_channel::{Receiver, Sender};
-use std::cell::Cell;
+use std::cell::RefCell;
 use wasm_bindgen::{JsCast, closure::Closure};
 
 thread_local! {
 static CHANNEL: (Sender<Progress>, Receiver<Progress>) = async_channel::bounded(80);
 
-static TIMEOUT: Cell<i32> = Cell::new(0);
-
-static THUMBNAIL_TRACKER: Cell<(u32, u32)> = Cell::new((0, 0));
-static THUMBNAIL_TIMEOUT: Cell<i32> = Cell::new(0);
-
-static PROCESSING_TRACKER: Cell<(u32, u32)> = Cell::new((0, 0));
-static PROCESSING_TIMEOUT: Cell<i32> = Cell::new(0);
+static MANAGER: RefCell<Manager> = RefCell::new(Default::default());
 
 static HIDE_NOTIFICATIONS: Closure<dyn Fn() -> JsResult> = hide("notifications");
 static HIDE_THUMBNAILS: Closure<dyn Fn() -> JsResult> = hide("thumbnails");
@@ -25,6 +19,120 @@ fn hide(id: &'static str) -> Closure<dyn Fn() -> JsResult> {
             .js_error()
             .and_then(|n| n.class_list().add_1("hidden"))
     })
+}
+
+#[derive(Default)]
+struct CompletionTracker {
+    complete: u32,
+    expected: u32,
+    timeout_handle: i32,
+}
+
+impl CompletionTracker {
+    fn new(expected: u32) -> Self {
+        Self {
+            expected,
+            ..Default::default()
+        }
+    }
+
+    fn inc(&mut self) {
+        self.complete += 1;
+    }
+}
+
+#[derive(Default)]
+struct Manager {
+    global_timeout_handle: i32,
+
+    thumbnails: CompletionTracker,
+    processing: CompletionTracker,
+}
+
+impl Manager {
+    fn process(&mut self, update: Progress) {
+        match update {
+            Progress::ThumbnailStart(count) => self.thumbnails = CompletionTracker::new(count),
+            Progress::ThumbnailGenerated(_) => self.thumbnails.inc(),
+            Progress::ThumbnailDone => self.thumbnails = Default::default(),
+            Progress::ProcessingStart(count) => self.processing = CompletionTracker::new(count),
+            Progress::Processing(_) => self.processing.inc(),
+            Progress::ProcessingDone => self.processing = Default::default(),
+        }
+
+        self.display_progress().aquiesce();
+    }
+
+    fn display_progress(&mut self) -> Result<(), Error> {
+        let mut in_progress = false;
+
+        let thumbnails = "thumbnails".query_id()?;
+        if self.thumbnails.expected > 0 {
+            in_progress |= true;
+
+            if self.thumbnails.timeout_handle > 0 {
+                window()?.clear_timeout_with_handle(self.thumbnails.timeout_handle);
+            }
+
+            thumbnails.class_list().remove_1("hidden")?;
+            thumbnails.set_text_content(Some(&format!(
+                "Generating thumbnails ({}/{})",
+                self.thumbnails.complete, self.thumbnails.expected
+            )));
+        } else {
+            self.thumbnails.timeout_handle = HIDE_THUMBNAILS.try_with(|handler| {
+                window()?.set_timeout_with_callback_and_timeout_and_arguments_0(
+                    handler.as_ref().unchecked_ref(),
+                    2000,
+                )
+            })??;
+
+            thumbnails.set_text_content(Some(&format!("Generating thumbnails done.")));
+        }
+
+        let processing = "processing".query_id()?;
+        if self.processing.expected > 0 {
+            in_progress |= true;
+
+            if self.processing.timeout_handle > 0 {
+                window()?.clear_timeout_with_handle(self.processing.timeout_handle);
+            }
+
+            processing.class_list().remove_1("hidden")?;
+            processing.set_text_content(Some(&format!(
+                "Processing ({}/{})",
+                self.processing.complete, self.processing.expected
+            )));
+        } else {
+            self.processing.timeout_handle = HIDE_PROCESSING.try_with(|handler| {
+                window()?.set_timeout_with_callback_and_timeout_and_arguments_0(
+                    handler.as_ref().unchecked_ref(),
+                    2000,
+                )
+            })??;
+
+            processing.set_text_content(Some(&format!("Processing done.")));
+        }
+
+        if in_progress {
+            if self.global_timeout_handle > 0 {
+                window()?.clear_timeout_with_handle(self.global_timeout_handle);
+            }
+            "notifications"
+                .query_id()?
+                .class_list()
+                .remove_1("hidden")?;
+        } else {
+            self.global_timeout_handle = HIDE_NOTIFICATIONS.try_with(|handler| {
+                window()?.set_timeout_with_callback_and_timeout_and_arguments_0(
+                    handler.as_ref().unchecked_ref(),
+                    2000,
+                )
+            })??;
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -47,95 +155,7 @@ pub fn sender() -> Receiver<Progress> {
 
 pub async fn handle_progress() -> Result<(), Error> {
     while let Ok(data) = sender().recv().await {
-        match data {
-            Progress::ThumbnailStart(count) => THUMBNAIL_TRACKER.set((0, count)),
-            Progress::ThumbnailGenerated(_) => {
-                let (done, count) = THUMBNAIL_TRACKER.get();
-                THUMBNAIL_TRACKER.set((done + 1, count));
-            }
-            Progress::ThumbnailDone => THUMBNAIL_TRACKER.set((0, 0)),
-            Progress::ProcessingStart(count) => PROCESSING_TRACKER.set((0, count)),
-            Progress::Processing(_) => {
-                let (done, count) = PROCESSING_TRACKER.get();
-                PROCESSING_TRACKER.set((done + 1, count));
-            }
-            Progress::ProcessingDone => PROCESSING_TRACKER.set((0, 0)),
-        }
-
-        display_progress().aquiesce();
-    }
-
-    Ok(())
-}
-
-fn display_progress() -> Result<(), Error> {
-    let mut in_progress = false;
-
-    let thumbnails = "thumbnails".query_id()?;
-    let (done, count) = THUMBNAIL_TRACKER.get();
-    if count > 0 {
-        in_progress |= true;
-
-        let handle = THUMBNAIL_TIMEOUT.get();
-        if handle > 0 {
-            window()?.clear_timeout_with_handle(handle);
-        }
-
-        thumbnails.class_list().remove_1("hidden")?;
-        thumbnails.set_text_content(Some(&format!("Generating thumbnails ({done}/{count})")));
-    } else {
-        let handle = HIDE_THUMBNAILS.try_with(|handler| {
-            window()?.set_timeout_with_callback_and_timeout_and_arguments_0(
-                handler.as_ref().unchecked_ref(),
-                1000,
-            )
-        })??;
-        THUMBNAIL_TIMEOUT.set(handle);
-
-        thumbnails.set_text_content(Some(&format!("Generating thumbnails done.")));
-    }
-
-    let processing = "processing".query_id()?;
-    let (done, count) = PROCESSING_TRACKER.get();
-    if count > 0 {
-        in_progress |= true;
-
-        let handle = PROCESSING_TIMEOUT.get();
-        if handle > 0 {
-            window()?.clear_timeout_with_handle(handle);
-        }
-
-        processing.class_list().remove_1("hidden")?;
-        processing.set_text_content(Some(&format!("Processing ({done}/{count})")));
-    } else {
-        let handle = HIDE_PROCESSING.try_with(|handler| {
-            window()?.set_timeout_with_callback_and_timeout_and_arguments_0(
-                handler.as_ref().unchecked_ref(),
-                1000,
-            )
-        })??;
-        PROCESSING_TIMEOUT.set(handle);
-
-        processing.set_text_content(Some(&format!("Processing done.")));
-    }
-
-    if in_progress {
-        let handle = TIMEOUT.get();
-        if handle > 0 {
-            window()?.clear_timeout_with_handle(handle);
-        }
-        "notifications"
-            .query_id()?
-            .class_list()
-            .remove_1("hidden")?;
-    } else {
-        let handle = HIDE_NOTIFICATIONS.try_with(|handler| {
-            window()?.set_timeout_with_callback_and_timeout_and_arguments_0(
-                handler.as_ref().unchecked_ref(),
-                1000,
-            )
-        })??;
-        TIMEOUT.set(handle);
+        MANAGER.with_borrow_mut(|manager| manager.process(data))
     }
 
     Ok(())

@@ -2,9 +2,10 @@ use crate::{
     Aquiesce, Error, Orientation, QueryExt, SessionStorageExt,
     models::{
         Data, ExposureSpecificData, FileMetadata, HTML_INPUT_TIMESTAMP_FORMAT,
-        HTML_INPUT_TIMESTAMP_FORMAT_N, History, Meta, RollData, Selection, WorkerCompressionAnswer,
+        HTML_INPUT_TIMESTAMP_FORMAT_N, History, Meta, RollData, Selection,
     },
     storage, view, worker,
+    worker::WorkerCompressionAnswer,
 };
 use chrono::NaiveDateTime;
 use std::{cell::RefCell, convert::TryInto, path::PathBuf};

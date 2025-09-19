@@ -1,22 +1,35 @@
 use crate::{
-    Aquiesce, Error, JsError, JsResult, image_management, models,
-    models::{ExposureData, FileMetadata, Orientation, WorkerCompressionAnswer},
+    Aquiesce, Error, JsError, JsResult, image_management,
+    models::{ExposureData, FileMetadata, Orientation},
 };
 use base64::prelude::*;
 use image::{ImageReader, codecs::jpeg::JpegEncoder, imageops::FilterType};
+use serde::{Deserialize, Serialize};
 use std::{cell::RefCell, io::Cursor, rc::Rc};
 use wasm_bindgen::prelude::*;
 use web_sys::{WorkerOptions, WorkerType};
 
+#[derive(Serialize, Deserialize)]
+pub enum WorkerMessage {
+    Process(FileMetadata, Box<ExposureData>),
+    GenerateThumbnail(FileMetadata),
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct WorkerCompressionAnswer(pub u32, pub String);
+
+#[derive(Serialize, Deserialize)]
+pub struct WorkerProcessingAnswer(pub Vec<String>);
+
 #[wasm_bindgen]
 pub async fn handle_message(data: JsValue) -> JsResult<JsValue> {
-    let message: models::WorkerMessage = serde_wasm_bindgen::from_value(data)?;
+    let message: WorkerMessage = serde_wasm_bindgen::from_value(data)?;
 
     match message {
-        models::WorkerMessage::Process(meta, dat) => {
+        WorkerMessage::Process(meta, dat) => {
             process_exposure(&meta, &dat).await.map(|_| JsValue::null())
         }
-        models::WorkerMessage::GenerateThumbnail(meta) => compress_image(meta)
+        WorkerMessage::GenerateThumbnail(meta) => compress_image(meta)
             .await
             .and_then(|a| serde_wasm_bindgen::to_value(&a).map_err(|e| e.into())),
     }
@@ -26,7 +39,7 @@ pub async fn handle_message(data: JsValue) -> JsResult<JsValue> {
 #[derive(Clone)]
 pub struct Pool {
     expected: usize,
-    tasks: Rc<RefCell<Vec<models::WorkerMessage>>>,
+    tasks: Rc<RefCell<Vec<WorkerMessage>>>,
     done: Rc<RefCell<usize>>,
     rx: async_channel::Receiver<usize>,
     tx: async_channel::Sender<usize>,
@@ -35,8 +48,8 @@ pub struct Pool {
 
 impl Pool {
     pub fn try_new_with_callback(
-        tasks: Vec<models::WorkerMessage>,
-        callback: Box<dyn Fn(web_sys::MessageEvent)>,
+        tasks: Vec<WorkerMessage>,
+        callback: impl Fn(web_sys::MessageEvent) + 'static,
     ) -> Result<Self, Error> {
         let (tx, rx) = async_channel::bounded(80);
 
@@ -46,7 +59,7 @@ impl Pool {
             done: Rc::new(RefCell::new(0)),
             rx,
             tx,
-            callback: Rc::new(callback),
+            callback: Rc::new(Box::new(callback)),
         };
 
         let concurrency = web_sys::window()
@@ -61,11 +74,11 @@ impl Pool {
         Ok(p)
     }
 
-    pub fn try_new(tasks: Vec<models::WorkerMessage>) -> Result<Self, Error> {
+    pub fn try_new(tasks: Vec<WorkerMessage>) -> Result<Self, Error> {
         Self::try_new_with_callback(tasks, Box::new(|_| ()))
     }
 
-    pub fn spawn(self, task: models::WorkerMessage) -> Result<(), Error> {
+    pub fn spawn(self, task: WorkerMessage) -> Result<(), Error> {
         let options = WorkerOptions::new();
         options.set_type(WorkerType::Module);
         let worker = web_sys::Worker::new_with_options("/worker.js", &options)?;
@@ -118,7 +131,10 @@ impl Pool {
     }
 }
 
-async fn process_exposure(metadata: &FileMetadata, data: &ExposureData) -> Result<(), Error> {
+async fn process_exposure(
+    metadata: &FileMetadata,
+    data: &ExposureData,
+) -> Result<WorkerProcessingAnswer, Error> {
     let photo_data = web_fs::read(
         metadata
             .local_fs_path
@@ -149,16 +165,18 @@ async fn process_exposure(metadata: &FileMetadata, data: &ExposureData) -> Resul
     )
     .expect("Global error");
 
-    web_fs::write(format!("{:0>2}.jpeg", metadata.index), output).await?;
+    let jpeg = format!("{:0>2}.jpeg", metadata.index);
+    web_fs::write(jpeg.clone(), output).await?;
 
     let mut output = Vec::with_capacity(100 * 1024 * 1024); // Reserve 100MB for the output
 
     image_management::encode_tiff_with_exif(photo, Cursor::new(&mut output), data)
         .expect("Failed to encode TIFF with EXIF");
 
-    web_fs::write(format!("{:0>2}.tiff", metadata.index), output).await?;
+    let tiff = format!("{:0>2}.tiff", metadata.index);
+    web_fs::write(tiff.clone(), output).await?;
 
-    Ok(())
+    Ok(WorkerProcessingAnswer(vec![jpeg.into(), tiff.into()]))
 }
 
 pub async fn compress_image(meta: FileMetadata) -> Result<WorkerCompressionAnswer, Error> {

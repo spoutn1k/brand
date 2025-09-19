@@ -120,15 +120,6 @@ pub struct ExposureData {
     pub gps: Option<(f64, f64)>,
 }
 
-#[derive(Serialize, Deserialize)]
-pub enum WorkerMessage {
-    Process(FileMetadata, Box<ExposureData>),
-    GenerateThumbnail(FileMetadata),
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct WorkerCompressionAnswer(pub u32, pub String);
-
 impl ExposureData {
     pub fn complete(self, other: &Self) -> Self {
         ExposureData {

@@ -11,7 +11,8 @@ pub mod worker;
 
 use crate::{
     controller::get_exposure_data,
-    models::{Data, FileKind, FileMetadata, Meta, Orientation, WorkerMessage},
+    models::{Data, FileKind, FileMetadata, Meta, Orientation},
+    worker::{WorkerCompressionAnswer, WorkerMessage},
 };
 use controller::Update;
 use image::ImageFormat;
@@ -65,17 +66,14 @@ async fn process_images() -> Result<(), Error> {
         .send(controller::Progress::ProcessingStart(tasks.len() as u32))
         .await?;
 
-    let pool = worker::Pool::try_new_with_callback(
-        tasks,
-        Box::new(|_| {
-            wasm_bindgen_futures::spawn_local(async move {
-                controller::notifier()
-                    .send(controller::Progress::Processing(0))
-                    .await
-                    .aquiesce();
-            })
-        }),
-    )?;
+    let pool = worker::Pool::try_new_with_callback(tasks, |_| {
+        wasm_bindgen_futures::spawn_local(async move {
+            controller::notifier()
+                .send(controller::Progress::Processing(0))
+                .await
+                .aquiesce();
+        })
+    })?;
 
     pool.join().await?;
 
@@ -274,7 +272,7 @@ async fn setup_editor_from_files(files: &[FileSystemFileEntry]) -> Result<(), Er
 }
 
 fn set_image(data: JsValue) -> Result<(), Error> {
-    let models::WorkerCompressionAnswer(index, base64): models::WorkerCompressionAnswer =
+    let WorkerCompressionAnswer(index, base64): WorkerCompressionAnswer =
         serde_wasm_bindgen::from_value(data)?;
 
     format!("exposure-{index}-preview")
@@ -311,19 +309,16 @@ async fn generate_thumbnails() -> Result<(), Error> {
 
     let tasks: Vec<_> = tasks
         .into_iter()
-        .map(models::WorkerMessage::GenerateThumbnail)
+        .map(WorkerMessage::GenerateThumbnail)
         .collect();
 
     controller::notifier()
         .send(controller::Progress::ThumbnailStart(tasks.len() as u32))
         .await?;
 
-    let pool = worker::Pool::try_new_with_callback(
-        tasks,
-        Box::new(|e: MessageEvent| {
-            set_image(e.data()).aquiesce();
-        }),
-    )?;
+    let pool = worker::Pool::try_new_with_callback(tasks, |e: MessageEvent| {
+        set_image(e.data()).aquiesce();
+    })?;
 
     pool.join().await?;
 

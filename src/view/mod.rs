@@ -339,6 +339,8 @@ pub mod exposure {
 
         if let Some((lat, lon)) = contents.gps {
             map::show_location(&[(lat, lon)]);
+        } else {
+            map::reset();
         }
 
         Ok(())
@@ -400,13 +402,21 @@ pub mod exposure {
             .filter_map(|e| e.gps.map(|(lat, lng)| format!("{lat}, {lng}")))
             .collect::<BTreeSet<_>>();
 
+        // Set the input contents depending on the selection
         match positions.len() {
+            // Empty if empty
             0 => (),
-            1 => gps_input.set_value(positions.first().map(|s| s.as_str()).unwrap_or_default()),
+            // Hard if one singular location
+            1 => gps_input.set_value(positions.first().map(String::as_str).unwrap_or_default()),
+            // Placeholder if not
             _ => gps_input.set_placeholder("multiple"),
         }
 
-        map::show_location(&contents.iter().filter_map(|c| c.gps).collect::<Vec<_>>());
+        if positions.len() > 0 {
+            map::show_location(&contents.iter().filter_map(|c| c.gps).collect::<Vec<_>>());
+        } else {
+            map::reset();
+        }
 
         Ok(())
     }

@@ -15,9 +15,8 @@ pub fn setup() -> Result<(), Error> {
     let map = Map::new_with_element(
         &"exposures-gps-map".query_id_into::<HtmlElement>()?,
         &MapOptions::default(),
-    );
+    )?;
 
-    map.set_view(&LatLng::new(48.8566, 2.3522), 4.0);
     TileLayer::new("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").add_to(&map);
     map.on_mouse_click(Box::new(handle_click));
 
@@ -32,7 +31,18 @@ pub fn setup() -> Result<(), Error> {
     MAP.try_with(|oc| oc.set(map))?
         .map_err(|_| Error::MapInit)?;
 
+    reset();
+
     Ok(())
+}
+
+/// Reset map on Paris with a zoom of 4.0
+pub fn reset() {
+    MAP.with(|oc| {
+        oc.get().map(|map| {
+            map.set_view(&LatLng::new(48.8566, 2.3522), 4.0);
+        });
+    })
 }
 
 pub fn invalidate() {

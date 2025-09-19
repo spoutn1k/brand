@@ -52,7 +52,7 @@ pub enum Error {
     NoTarget,
     #[error(transparent)]
     ChronoParse(#[from] chrono::ParseError),
-    #[error("Bad GPS element format: {0}")]
+    #[error("Bad GPS element format:\n{0}")]
     GpsParse(String),
     #[error("Map already initialized")]
     MapInit,

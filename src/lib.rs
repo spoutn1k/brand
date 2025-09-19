@@ -12,20 +12,16 @@ pub mod worker;
 use crate::{
     controller::get_exposure_data,
     models::{Data, FileKind, FileMetadata, Meta, Orientation},
-    worker::{WorkerCompressionAnswer, WorkerMessage},
+    worker::{WorkerCompressionAnswer, WorkerMessage, WorkerProcessingAnswer},
 };
 use controller::Update;
 use image::ImageFormat;
-use js_sys::{Array, Uint8Array};
 use std::{
     io::Cursor,
     path::{Path, PathBuf},
 };
 use wasm_bindgen::prelude::*;
-use web_sys::{
-    Blob, Event, File as WebFile, FileSystemFileEntry, HtmlElement, KeyEvent, KeyboardEvent,
-    MessageEvent,
-};
+use web_sys::{Event, File as WebFile, FileSystemFileEntry, KeyEvent, KeyboardEvent, MessageEvent};
 
 pub use error::{Aquiesce, Error, JsError, JsResult};
 pub use helpers::{
@@ -39,10 +35,31 @@ static KEY_HANDLER: Closure<dyn Fn(KeyboardEvent)> = Closure::new(|e: KeyboardEv
         controller::update(controller::Update::SelectionClear).aquiesce()
     }
 });
+
+}
+
+fn handle_finished_export(
+    event: MessageEvent,
+    sender: async_channel::Sender<PathBuf>,
+) -> Result<(), Error> {
+    let result: WorkerProcessingAnswer = serde_wasm_bindgen::from_value(event.data())?;
+
+    wasm_bindgen_futures::spawn_local(async move {
+        for file in result.0 {
+            sender.send(file).await.aquiesce();
+        }
+
+        controller::notifier()
+            .send(controller::Progress::Processing(0))
+            .await
+            .aquiesce();
+    });
+
+    Ok(())
 }
 
 async fn process_images() -> Result<(), Error> {
-    let data: Meta = serde_json::from_str(
+    let metadata: Meta = serde_json::from_str(
         &storage()?
             .get_item("metadata")?
             .ok_or(Error::MissingKey("metadata".into()))?,
@@ -55,7 +72,15 @@ async fn process_images() -> Result<(), Error> {
 
     let exposures = get_exposure_data()?;
 
-    let tasks: Vec<_> = data
+    let (sender, receiver) = async_channel::bounded(80);
+
+    wasm_bindgen_futures::spawn_local(async move {
+        archive::builder(folder_name.into(), receiver)
+            .await
+            .aquiesce();
+    });
+
+    let tasks: Vec<_> = metadata
         .into_values()
         .map(|entry| {
             WorkerMessage::Process(entry.clone(), Box::new(exposures.generate(entry.index)))
@@ -66,13 +91,8 @@ async fn process_images() -> Result<(), Error> {
         .send(controller::Progress::ProcessingStart(tasks.len() as u32))
         .await?;
 
-    let pool = worker::Pool::try_new_with_callback(tasks, |_| {
-        wasm_bindgen_futures::spawn_local(async move {
-            controller::notifier()
-                .send(controller::Progress::Processing(0))
-                .await
-                .aquiesce();
-        })
+    let pool = worker::Pool::try_new_with_callback(tasks, move |event| {
+        handle_finished_export(event, sender.clone()).aquiesce();
     })?;
 
     pool.join().await?;
@@ -80,32 +100,6 @@ async fn process_images() -> Result<(), Error> {
     controller::notifier()
         .send(controller::Progress::ProcessingDone)
         .await?;
-
-    archive::export_dir(".", folder_name.into()).await
-}
-
-fn download_buffer(buffer: &[u8], filename: &str, mime_type: &str) -> Result<(), Error> {
-    let bytes = Uint8Array::new(&unsafe { Uint8Array::view(buffer) }.into());
-
-    let array = Array::new();
-    array.push(&bytes.buffer());
-
-    let props = web_sys::BlobPropertyBag::new();
-    props.set_type(mime_type);
-
-    let blob = Blob::new_with_u8_array_sequence_and_options(&array, &props)?;
-
-    let url = web_sys::Url::create_object_url_with_blob(&blob)?;
-    let element = "a".as_html_into::<HtmlElement>()?;
-    element.set_attribute("href", &url)?;
-    element.set_attribute("download", filename)?;
-    element.style().set_property("display", "none")?;
-
-    body()?.append_with_node_1(&element)?;
-    element.click();
-    body()?.remove_child(&element)?;
-
-    web_sys::Url::revoke_object_url(&url)?;
 
     Ok(())
 }
@@ -340,7 +334,7 @@ pub fn setup() -> JsResult {
     wasm_bindgen_futures::spawn_local(async { controller::handle_progress().await.aquiesce() });
 
     if let Some(data) = storage()?.get_item("data")? {
-        let data: Data = serde_json::from_str(&data).map_err(|e| e.to_string())?;
+        let data: Data = serde_json::from_str(&data).js_error()?;
         wasm_bindgen_futures::spawn_local(
             async move { setup_editor_from_data(data).await.aquiesce() },
         );

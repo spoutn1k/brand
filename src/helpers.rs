@@ -1,7 +1,8 @@
 use crate::Error;
+use js_sys::{Array, Uint8Array};
 use std::thread::LocalKey;
 use wasm_bindgen::{JsCast, JsValue};
-use web_sys::{Document, Element, Event, EventTarget, HtmlElement, Storage, Window};
+use web_sys::{Blob, Document, Element, Event, EventTarget, HtmlElement, Storage, Window};
 
 pub fn window() -> Result<Window, Error> {
     web_sys::window().ok_or(Error::NoWindow)
@@ -132,4 +133,30 @@ where
 
         Ok(self)
     }
+}
+
+pub fn download_buffer(buffer: &[u8], filename: &str, mime_type: &str) -> Result<(), Error> {
+    let bytes = Uint8Array::new(&unsafe { Uint8Array::view(buffer) }.into());
+
+    let array = Array::new();
+    array.push(&bytes.buffer());
+
+    let props = web_sys::BlobPropertyBag::new();
+    props.set_type(mime_type);
+
+    let blob = Blob::new_with_u8_array_sequence_and_options(&array, &props)?;
+
+    let url = web_sys::Url::create_object_url_with_blob(&blob)?;
+    let element = "a".as_html_into::<HtmlElement>()?;
+    element.set_attribute("href", &url)?;
+    element.set_attribute("download", filename)?;
+    element.style().set_property("display", "none")?;
+
+    body()?.append_with_node_1(&element)?;
+    element.click();
+    body()?.remove_child(&element)?;
+
+    web_sys::Url::revoke_object_url(&url)?;
+
+    Ok(())
 }

@@ -5,7 +5,7 @@ use crate::{
 use base64::prelude::*;
 use image::{ImageReader, codecs::jpeg::JpegEncoder, imageops::FilterType};
 use serde::{Deserialize, Serialize};
-use std::{cell::RefCell, io::Cursor, rc::Rc};
+use std::{cell::RefCell, io::Cursor, path::PathBuf, rc::Rc};
 use wasm_bindgen::prelude::*;
 use web_sys::{WorkerOptions, WorkerType};
 
@@ -19,16 +19,16 @@ pub enum WorkerMessage {
 pub struct WorkerCompressionAnswer(pub u32, pub String);
 
 #[derive(Serialize, Deserialize)]
-pub struct WorkerProcessingAnswer(pub Vec<String>);
+pub struct WorkerProcessingAnswer(pub Vec<PathBuf>);
 
 #[wasm_bindgen]
 pub async fn handle_message(data: JsValue) -> JsResult<JsValue> {
     let message: WorkerMessage = serde_wasm_bindgen::from_value(data)?;
 
     match message {
-        WorkerMessage::Process(meta, dat) => {
-            process_exposure(&meta, &dat).await.map(|_| JsValue::null())
-        }
+        WorkerMessage::Process(meta, dat) => process_exposure(&meta, &dat)
+            .await
+            .and_then(|a| serde_wasm_bindgen::to_value(&a).map_err(|e| e.into())),
         WorkerMessage::GenerateThumbnail(meta) => compress_image(meta)
             .await
             .and_then(|a| serde_wasm_bindgen::to_value(&a).map_err(|e| e.into())),

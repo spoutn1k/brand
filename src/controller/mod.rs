@@ -2,7 +2,7 @@ use crate::{
     Aquiesce, Error, Orientation, QueryExt, SessionStorageExt,
     models::{
         Data, ExposureSpecificData, FileMetadata, HTML_INPUT_TIMESTAMP_FORMAT,
-        HTML_INPUT_TIMESTAMP_FORMAT_N, History, Meta, RollData, Selection,
+        HTML_INPUT_TIMESTAMP_FORMAT_N, History, Meta, RollData, Selection, TseFormat,
     },
     storage, view, worker,
     worker::WorkerCompressionAnswer,
@@ -341,4 +341,10 @@ pub fn update(event: Update) -> Result<(), Error> {
         }
         Update::Undo => undo(),
     }
+}
+
+pub fn get_tse() -> Result<String, Error> {
+    let data: Data = serde_json::from_str(&storage()?.get_existing("data")?)?;
+
+    Ok(data.as_tse())
 }

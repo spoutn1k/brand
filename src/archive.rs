@@ -1,9 +1,5 @@
-use crate::{
-    Error, SessionStorageExt, download_buffer,
-    models::{Data, TseFormat},
-    storage,
-};
-use futures::StreamExt;
+use crate::{Error, controller::get_tse, helpers::download_buffer};
+use async_channel::Receiver;
 use std::{
     io::{Cursor, Write},
     path::{Path, PathBuf},
@@ -11,7 +7,7 @@ use std::{
 
 static ARCHIVE_SIZE: usize = 2 * 1024 * 1024 * 1024 - 1; // 2GiB
 
-fn create_archive() -> tar::Builder<Cursor<Vec<u8>>> {
+fn create() -> tar::Builder<Cursor<Vec<u8>>> {
     tar::Builder::new(Cursor::new(Vec::<u8>::with_capacity(ARCHIVE_SIZE)))
 }
 
@@ -40,25 +36,15 @@ impl<W: Write> AddFileExt for tar::Builder<W> {
     }
 }
 
-pub async fn export_dir<P: AsRef<Path>>(path: P, folder_name: PathBuf) -> Result<(), Error> {
-    let mut archive_builder = create_archive();
+pub async fn builder(folder_name: PathBuf, receiver: Receiver<PathBuf>) -> Result<(), Error> {
+    let mut archive_builder = create();
 
-    let data: Data = serde_json::from_str(&storage()?.get_existing("data")?)?;
-    let file = data.as_tse();
-
-    archive_builder.add_file(file.as_bytes(), folder_name.clone().join("index.tse"))?;
+    archive_builder.add_file(get_tse()?.as_bytes(), folder_name.clone().join("index.tse"))?;
 
     let mut archive_num = 1;
     let mut counter: usize = 0;
-    let mut stream = web_fs::read_dir(path).await?;
-    while let Some(entry) = stream.next().await {
-        let entry = entry?;
-
-        if entry.file_type().await?.is_dir() {
-            continue;
-        }
-
-        let file = web_fs::read(entry.path()).await?;
+    while let Ok(entry) = receiver.recv().await {
+        let file = web_fs::read(&entry).await?;
 
         if counter + file.len() > ARCHIVE_SIZE {
             download_buffer(
@@ -68,26 +54,18 @@ pub async fn export_dir<P: AsRef<Path>>(path: P, folder_name: PathBuf) -> Result
             )?;
             archive_num += 1;
             counter = 0;
-            archive_builder = create_archive();
+            archive_builder = create();
         }
         counter += file.len();
 
         log::info!(
-            "Adding file {} to archive ({} bytes, {}MB total)",
-            entry.path().display(),
+            "Adding file `{}` to archive ({} bytes, {}MB total)",
+            entry.to_string_lossy(),
             file.len(),
             counter / (1024 * 1024)
         );
 
-        archive_builder.add_file(
-            &file,
-            folder_name.clone().join(
-                entry
-                    .path()
-                    .file_name()
-                    .ok_or(Error::MissingKey("Entry path has no file name".into()))?,
-            ),
-        )?;
+        archive_builder.add_file(&file, folder_name.clone().join(entry))?;
     }
 
     download_buffer(
@@ -95,4 +73,5 @@ pub async fn export_dir<P: AsRef<Path>>(path: P, folder_name: PathBuf) -> Result
         &format!("{}-{archive_num}.tar", folder_name.display()),
         "application/x-tar",
     )
+    .inspect(|_| log::info!("Async archive builder done. Goodbye."))
 }

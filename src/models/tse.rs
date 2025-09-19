@@ -1,6 +1,6 @@
 use crate::{
     Error,
-    models::{Data, ExposureSpecificData},
+    models::{Data, ExposureSpecificData, RollData},
 };
 use chrono::NaiveDateTime;
 use winnow::{
@@ -85,7 +85,7 @@ pub fn read_tse<R: std::io::BufRead>(buffer: R) -> Result<Data, Error> {
                 "Description" => roll.description = Some(value.trim().into()),
                 "Author" => roll.author = Some(value.trim().into()),
                 "ISO" => roll.iso = Some(value.trim().into()),
-                &_ => (),
+                _ => (),
             }
 
             continue;
@@ -102,6 +102,70 @@ pub fn read_tse<R: std::io::BufRead>(buffer: R) -> Result<Data, Error> {
     }
 
     Ok(Data { roll, exposures })
+}
+
+pub trait TseFormat {
+    fn as_tse(&self) -> String;
+}
+
+impl TseFormat for ExposureSpecificData {
+    fn as_tse(&self) -> String {
+        let mut fields = vec![
+            self.sspeed.clone().unwrap_or_default(),
+            self.aperture.clone().unwrap_or_default(),
+            self.lens.clone().unwrap_or_default(),
+            self.comment.clone().unwrap_or_default(),
+            self.date
+                .map(|d| d.format("%Y %m %d %H %M %S").to_string())
+                .unwrap_or_default(),
+        ];
+
+        match self.gps {
+            None => fields.push(String::new()),
+            Some((lat, lon)) => fields.push(format!("{lat}, {lon}")),
+        }
+
+        fields.join("\t")
+    }
+}
+
+impl TseFormat for RollData {
+    fn as_tse(&self) -> String {
+        format!(
+            "#Description {}
+#ImageDescription {}
+#Artist {}
+#Author {}
+#ISO {}
+#Make {}
+#Model {}
+; vim: set list number noexpandtab:",
+            self.description.as_deref().unwrap_or_default(),
+            self.description.as_deref().unwrap_or_default(),
+            self.author.as_deref().unwrap_or_default(),
+            self.author.as_deref().unwrap_or_default(),
+            self.iso.as_deref().unwrap_or_default(),
+            self.make.as_deref().unwrap_or_default(),
+            self.model.as_deref().unwrap_or_default(),
+        )
+    }
+}
+
+impl TseFormat for Data {
+    fn as_tse(&self) -> String {
+        let max: u32 = *self.exposures.keys().max().unwrap_or(&0u32) + 1;
+
+        (1..max)
+            .map(|index| {
+                self.exposures
+                    .get(&index)
+                    .map(|exp| exp.as_tse())
+                    .unwrap_or_default()
+            })
+            .chain(self.roll.as_tse().lines().map(String::from))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
 }
 
 #[test]
@@ -154,6 +218,8 @@ fn test_read_tse() {
 #Model F3
 ; vim: set list number noexpandtab:
 "#;
+    let parsed = read_tse(tse.as_bytes()).unwrap();
 
-    insta::assert_debug_snapshot!(read_tse(tse.as_bytes()).unwrap());
+    insta::assert_debug_snapshot!(parsed);
+    insta::assert_snapshot!(parsed.as_tse())
 }

@@ -1,5 +1,5 @@
 ---
-source: src/models.rs
+source: src/models/tse.rs
 expression: read_tse(tse.as_bytes()).unwrap()
 ---
 Data {

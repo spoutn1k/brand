@@ -1,4 +1,8 @@
-use crate::{Error, SessionStorageExt, download_buffer, models::Data, storage};
+use crate::{
+    Error, SessionStorageExt, download_buffer,
+    models::{Data, TseFormat},
+    storage,
+};
 use futures::StreamExt;
 use std::{
     io::{Cursor, Write},
@@ -40,7 +44,7 @@ pub async fn export_dir<P: AsRef<Path>>(path: P, folder_name: PathBuf) -> Result
     let mut archive_builder = create_archive();
 
     let data: Data = serde_json::from_str(&storage()?.get_existing("data")?)?;
-    let file = data.to_string();
+    let file = data.as_tse();
 
     archive_builder.add_file(file.as_bytes(), folder_name.clone().join("index.tse"))?;
 

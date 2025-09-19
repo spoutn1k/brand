@@ -127,7 +127,7 @@ async fn import_tse(entry: &FileSystemFileEntry) -> Result<(), Error> {
         let r = reader.clone();
         let closure = Closure::once(move |_: Event| -> JsResult {
             let raw = r.result()?.as_string().unwrap_or_default();
-            let data = models::tse::read_tse(Cursor::new(raw))?;
+            let data = models::read_tse(Cursor::new(raw))?;
 
             storage()?.set_item("data", &serde_json::to_string(&data).unwrap())?;
 

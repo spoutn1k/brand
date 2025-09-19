@@ -164,10 +164,7 @@ pub async fn handle_progress() -> Result<(), Error> {
 
 pub async fn notify(update: Progress) -> Result<(), Error> {
     if let Some(mut notifier) = CHANNEL.with(|t| t.get().cloned()) {
-        notifier
-            .send(update)
-            .await
-            .map_err(|_| Error::MissingKey(String::from("Failed to send update")))?;
+        notifier.send(update).await?;
     }
 
     Ok(())

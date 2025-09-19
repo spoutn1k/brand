@@ -5,6 +5,10 @@ use crate::{
     models::{ExposureData, FileMetadata, Orientation},
 };
 use base64::prelude::*;
+use futures::{
+    SinkExt, StreamExt,
+    channel::mpsc::{Receiver, Sender, channel},
+};
 use image::{ImageReader, codecs::jpeg::JpegEncoder, imageops::FilterType};
 use serde::{Deserialize, Serialize};
 use std::{cell::RefCell, io::Cursor, path::PathBuf, rc::Rc};
@@ -38,13 +42,17 @@ pub async fn handle_message(data: JsValue) -> JsResult<JsValue> {
     .js_error()
 }
 
-#[derive(Clone)]
 pub struct Pool {
+    rx: Receiver<usize>,
     expected: usize,
+    execution: Execution,
+}
+
+#[derive(Clone)]
+struct Execution {
     tasks: Rc<RefCell<Vec<WorkerMessage>>>,
     done: Rc<RefCell<usize>>,
-    rx: async_channel::Receiver<usize>,
-    tx: async_channel::Sender<usize>,
+    tx: Sender<usize>,
     callback: Rc<dyn Fn(web_sys::MessageEvent)>,
 }
 
@@ -53,21 +61,23 @@ impl Pool {
         tasks: Vec<WorkerMessage>,
         callback: impl Fn(web_sys::MessageEvent) + 'static,
     ) -> Result<Self, Error> {
-        let (tx, rx) = async_channel::bounded(80);
+        let (tx, rx) = channel(80);
 
         let p = Self {
-            expected: tasks.len(),
-            tasks: Rc::new(RefCell::new(tasks)),
-            done: Rc::new(RefCell::new(0)),
             rx,
-            tx,
-            callback: Rc::new(callback),
+            expected: tasks.len(),
+            execution: Execution {
+                tasks: Rc::new(RefCell::new(tasks)),
+                done: Rc::new(RefCell::new(0)),
+                tx,
+                callback: Rc::new(callback),
+            },
         };
 
         let concurrency = window()?.navigator().hardware_concurrency() as usize;
 
         for _ in 1..concurrency {
-            p.spawn_next()?;
+            p.execution.spawn_next()?;
         }
 
         Ok(p)
@@ -77,6 +87,18 @@ impl Pool {
         Self::try_new_with_callback(tasks, |_| ())
     }
 
+    pub async fn join(mut self) -> Result<(), Error> {
+        while let Some(index) = self.rx.next().await {
+            if index == self.expected {
+                return Ok(());
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl Execution {
     pub fn spawn(self, task: WorkerMessage) -> Result<(), Error> {
         let options = WorkerOptions::new();
         options.set_type(WorkerType::Module);
@@ -87,10 +109,10 @@ impl Pool {
             let next = state.tasks.borrow_mut().pop();
             *state.done.borrow_mut() += 1;
 
-            let st = state.clone();
-            let count = *st.done.borrow();
+            let mut tx = self.tx.clone();
+            let count = self.done.borrow().clone();
             wasm_bindgen_futures::spawn_local(async move {
-                st.tx.send(count).await.aquiesce();
+                tx.send(count).await.aquiesce();
             });
 
             state.callback.clone()(event);
@@ -118,14 +140,6 @@ impl Pool {
             state.spawn(task)
         } else {
             Ok(())
-        }
-    }
-
-    pub async fn join(self) -> Result<(), Error> {
-        loop {
-            if self.rx.recv().await? == self.expected {
-                return Ok(());
-            }
         }
     }
 }

@@ -1,4 +1,3 @@
-use crate::controller;
 use std::thread::AccessError;
 use wasm_bindgen::JsValue;
 
@@ -31,10 +30,6 @@ pub enum Error {
     #[error(transparent)]
     Format(#[from] std::fmt::Error),
     #[error(transparent)]
-    AsyncRecv(#[from] async_channel::RecvError),
-    #[error(transparent)]
-    ProgressSend(#[from] async_channel::SendError<controller::Progress>),
-    #[error(transparent)]
     ThreadVariable(#[from] AccessError),
     #[error("Failed to access global window")]
     NoWindow,
@@ -56,6 +51,12 @@ pub enum Error {
     GpsParse(String),
     #[error("Map already initialized")]
     MapInit,
+    #[error(transparent)]
+    MpscChannelSend(#[from] futures::channel::mpsc::SendError),
+    #[error("Failed to send through the channel")]
+    OsChannelSend,
+    #[error(transparent)]
+    OsChannelRecv(#[from] futures::channel::oneshot::Canceled),
 }
 
 impl From<JsValue> for Error {

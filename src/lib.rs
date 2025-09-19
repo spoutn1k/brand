@@ -16,7 +16,7 @@ use crate::{
 };
 use controller::Update;
 use futures::{
-    SinkExt,
+    SinkExt, StreamExt,
     channel::{mpsc, oneshot},
 };
 use image::ImageFormat;
@@ -93,18 +93,15 @@ async fn process_images() -> Result<(), Error> {
 
     controller::notify(controller::Progress::ProcessingStart(tasks.len() as u32)).await?;
 
-    let pool = worker::Pool::try_new_with_callback(tasks, move |event| {
+    worker::Pool::try_new_with_callback(tasks, move |event| {
         handle_finished_export(event, sender.clone()).aquiesce();
-    })?;
+    })?
+    .join()
+    .await?;
 
-    pool.join().await?;
+    ok.await?;
 
-    ok.await
-        .map_err(|_| Error::MissingKey(String::from("Ok failed")))?;
-
-    controller::notify(controller::Progress::ProcessingDone).await?;
-
-    Ok(())
+    controller::notify(controller::Progress::ProcessingDone).await
 }
 
 fn extract_index_from_filename(filename: &str) -> Option<u32> {
@@ -211,11 +208,11 @@ async fn setup_editor_from_files(files: &[FileSystemFileEntry]) -> Result<(), Er
     web_fs::create_dir("originals").await?;
     let earlier = instant::SystemTime::now();
 
-    let (tx, rx) = async_channel::unbounded();
+    let (tx, mut rx) = mpsc::channel(80);
     for ((file_id, mut meta), entry) in metadata.iter().cloned().zip(images) {
         let name = entry.name();
 
-        let tx = tx.clone();
+        let mut tx = tx.clone();
 
         // We need to get the web_sys::File from the FileSystemFileEntry, so a closure is used,
         // then we create a FileReader to read the file, and add a callback to handle the file once
@@ -232,7 +229,7 @@ async fn setup_editor_from_files(files: &[FileSystemFileEntry]) -> Result<(), Er
                     meta.local_fs_path = Some(path.clone());
                     fs::write_to_fs(&path, r).await.aquiesce();
                     controller::update(Update::FileMetadata(file_id, meta.clone())).aquiesce();
-                    tx.send(()).await.unwrap();
+                    tx.send(()).await.aquiesce();
                 });
             });
             reader.set_onloadend(Some(closure.as_ref().unchecked_ref()));
@@ -249,9 +246,7 @@ async fn setup_editor_from_files(files: &[FileSystemFileEntry]) -> Result<(), Er
 
     drop(tx);
 
-    while rx.sender_count() > 0 {
-        rx.recv().await?;
-    }
+    while rx.next().await.is_some() {}
 
     let now = instant::SystemTime::now()
         .duration_since(earlier)
@@ -286,14 +281,12 @@ fn set_image(data: JsValue) -> Result<(), Error> {
 }
 
 async fn setup_editor_from_data(contents: Data) -> Result<(), Error> {
-    view::roll::fill_fields(&contents.roll)?;
-
     storage()?.set_item("data", &serde_json::to_string(&contents)?)?;
 
-    view::preview::create(contents.exposures.len() as u32)?;
-
-    view::landing::hide()?;
-    view::editor::show()?;
+    view::roll::fill_fields(&contents.roll)
+        .and(view::preview::create(contents.exposures.len() as u32))
+        .and(view::landing::hide())
+        .and(view::editor::show())?;
 
     generate_thumbnails().await
 }

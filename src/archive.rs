@@ -82,6 +82,5 @@ pub async fn builder(
     )
     .inspect(|_| log::info!("Async archive builder done. Goodbye."))?;
 
-    ack.send(())
-        .map_err(|_| Error::MissingKey(String::from("Ack failed")))
+    ack.send(()).or(Err(Error::OsChannelSend))
 }

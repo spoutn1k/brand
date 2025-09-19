@@ -17,7 +17,7 @@ thread_local! {
     static HISTORY: RefCell<History<Data>> = RefCell::new(Default::default());
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Update {
     SelectExposure(u32, bool, bool),
     SelectionClear,

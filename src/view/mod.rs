@@ -1,4 +1,12 @@
 pub mod map;
+use web_sys::Event;
+
+use crate::{controller, controller::Update, error::Aquiesce};
+use wasm_bindgen::closure::Closure;
+
+fn update(kind: Update) -> Closure<dyn Fn(Event)> {
+    Closure::new(move |_| controller::update(kind.clone()).aquiesce())
+}
 
 pub mod editor {
     use crate::{
@@ -114,6 +122,7 @@ pub mod preview {
         Aquiesce, AsHtmlExt, Error, EventTargetExt, QueryExt, SetEventHandlerExt,
         controller::{self, Update},
         models,
+        view::update,
     };
     use wasm_bindgen::prelude::*;
     use web_sys::{Event, HtmlElement, MouseEvent};
@@ -121,14 +130,9 @@ pub mod preview {
     thread_local! {
     static CLICK_EXPOSURE: Closure<dyn Fn(MouseEvent)> = Closure::new(handle_exposure_click);
 
-    static SELECTION_CLEAR: Closure<dyn Fn(Event)> =
-        Closure::new(|_| controller::update(Update::SelectionClear).aquiesce());
-
-    static SELECTION_ALL: Closure<dyn Fn(Event)> =
-        Closure::new(|_| controller::update(Update::SelectionAll).aquiesce());
-
-    static SELECTION_INVERT: Closure<dyn Fn(Event)> =
-        Closure::new(|_| controller::update(Update::SelectionInvert).aquiesce());
+    static SELECTION_CLEAR: Closure<dyn Fn(Event)> = update(Update::SelectionClear);
+    static SELECTION_ALL: Closure<dyn Fn(Event)> = update(Update::SelectionAll);
+    static SELECTION_INVERT: Closure<dyn Fn(Event)> = update(Update::SelectionInvert);
     }
 
     fn handle_exposure_click(event: MouseEvent) {
@@ -213,58 +217,34 @@ pub mod exposure {
         controller::{self, UIExposureUpdate, Update},
         gps::parse_gps,
         models::{self, HTML_INPUT_TIMESTAMP_FORMAT, Selection},
-        view::map,
+        view::{map, update},
     };
     use itertools::Itertools;
     use std::collections::BTreeSet;
     use wasm_bindgen::prelude::*;
     use web_sys::{Event, HtmlInputElement};
 
+    fn exposure(
+        format: impl Fn(String) -> UIExposureUpdate + 'static + Clone,
+    ) -> Closure<dyn Fn(Event)> {
+        Closure::new(move |event: Event| {
+            event
+                .target_into::<HtmlInputElement>()
+                .and_then(|t| controller::update(Update::Exposure(format.clone()(t.value()))))
+                .aquiesce()
+        })
+    }
+
     thread_local! {
-    static ROTATE_LEFT: Closure<dyn Fn(Event)> =
-        Closure::new(|_| controller::update(Update::RotateLeft).aquiesce());
+    static ROTATE_LEFT: Closure<dyn Fn(Event)> = update(Update::RotateLeft);
+    static ROTATE_RIGHT: Closure<dyn Fn(Event)> = update(Update::RotateRight);
+    static UNDO: Closure<dyn Fn(Event)> = update(Update::Undo);
 
-    static ROTATE_RIGHT: Closure<dyn Fn(Event)> =
-        Closure::new(|_| controller::update(Update::RotateRight).aquiesce());
-
-    static UNDO: Closure<dyn Fn(Event)> =
-        Closure::new(|_| controller::update(Update::Undo).aquiesce());
-
-    static UPDATE_SSPEED: Closure<dyn Fn(Event)> = Closure::new(|event: Event| {
-        event
-            .target_into::<HtmlInputElement>()
-            .and_then(|t| controller::update(Update::Exposure(UIExposureUpdate::ShutterSpeed(t.value()))))
-            .aquiesce()
-    });
-
-    static UPDATE_APERTURE: Closure<dyn Fn(Event)> = Closure::new(|event: Event| {
-        event
-            .target_into::<HtmlInputElement>()
-            .and_then(|t| controller::update(Update::Exposure(UIExposureUpdate::Aperture(t.value()))))
-            .aquiesce()
-    });
-
-    static UPDATE_LENS: Closure<dyn Fn(Event)> = Closure::new(|event: Event| {
-        event
-            .target_into::<HtmlInputElement>()
-            .and_then(|t| controller::update(Update::Exposure(UIExposureUpdate::Lens(t.value()))))
-            .aquiesce()
-    });
-
-    static UPDATE_COMMENT: Closure<dyn Fn(Event)> = Closure::new(|event: Event| {
-        event
-            .target_into::<HtmlInputElement>()
-            .and_then(|t| controller::update(Update::Exposure(UIExposureUpdate::Comment(t.value()))))
-            .aquiesce()
-    });
-
-    static UPDATE_DATE: Closure<dyn Fn(Event)> = Closure::new(|event: Event| {
-        event
-            .target_into::<HtmlInputElement>()
-            .and_then(|t| controller::update(Update::Exposure(UIExposureUpdate::Date(t.value()))))
-            .aquiesce()
-    });
-
+    static UPDATE_APERTURE: Closure<dyn Fn(Event)> = exposure(UIExposureUpdate::Aperture);
+    static UPDATE_COMMENT: Closure<dyn Fn(Event)> = exposure(UIExposureUpdate::Comment);
+    static UPDATE_DATE: Closure<dyn Fn(Event)> = exposure(UIExposureUpdate::Date);
+    static UPDATE_LENS: Closure<dyn Fn(Event)> = exposure(UIExposureUpdate::Lens);
+    static UPDATE_SSPEED: Closure<dyn Fn(Event)> = exposure(UIExposureUpdate::ShutterSpeed);
     static UPDATE_GPS: Closure<dyn Fn(Event)> = Closure::new(|event: Event| {
         event
             .target_into::<HtmlInputElement>()

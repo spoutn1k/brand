@@ -7,30 +7,24 @@ thread_local! {
 static CHANNEL: (Sender<Progress>, Receiver<Progress>) = async_channel::bounded(80);
 
 static TIMEOUT: Cell<i32> = Cell::new(0);
-static HIDE_NOTIFICATIONS: Closure<dyn Fn() -> JsResult> = Closure::new(move || -> JsResult {
-    "notifications"
-        .query_id()
-        .and_then(|n| n.class_list().add_1("hidden").map_err(|e| e.into()))
-        .js_error()
-});
 
 static THUMBNAIL_TRACKER: Cell<(u32, u32)> = Cell::new((0, 0));
 static THUMBNAIL_TIMEOUT: Cell<i32> = Cell::new(0);
-static HIDE_THUMBNAILS: Closure<dyn Fn() -> JsResult> = Closure::new(move || -> JsResult {
-    "thumbnails"
-        .query_id()
-        .and_then(|n| n.class_list().add_1("hidden").map_err(|e| e.into()))
-        .js_error()
-});
 
 static PROCESSING_TRACKER: Cell<(u32, u32)> = Cell::new((0, 0));
 static PROCESSING_TIMEOUT: Cell<i32> = Cell::new(0);
-static HIDE_PROCESSING: Closure<dyn Fn() -> JsResult> = Closure::new(move || -> JsResult {
-    "processing"
-        .query_id()
-        .and_then(|n| n.class_list().add_1("hidden").map_err(|e| e.into()))
-        .js_error()
-});
+
+static HIDE_NOTIFICATIONS: Closure<dyn Fn() -> JsResult> = hide("notifications");
+static HIDE_THUMBNAILS: Closure<dyn Fn() -> JsResult> = hide("thumbnails");
+static HIDE_PROCESSING: Closure<dyn Fn() -> JsResult> = hide("processing");
+}
+
+fn hide(id: &'static str) -> Closure<dyn Fn() -> JsResult> {
+    Closure::new(move || -> JsResult {
+        id.query_id()
+            .js_error()
+            .and_then(|n| n.class_list().add_1("hidden"))
+    })
 }
 
 #[derive(Debug)]

@@ -101,7 +101,9 @@ async fn process_images() -> Result<(), Error> {
 
     ok.await?;
 
-    controller::notify(controller::Progress::ProcessingDone).await
+    controller::notify(controller::Progress::ProcessingDone).await?;
+
+    fs::clear_dir("processed").await
 }
 
 fn extract_index_from_filename(filename: &str) -> Option<u32> {
@@ -205,7 +207,9 @@ async fn setup_editor_from_files(files: &[FileSystemFileEntry]) -> Result<(), Er
         import_tse(&file).await?
     }
 
-    web_fs::create_dir("originals").await?;
+    web_fs::create_dir("originals").await.aquiesce();
+    web_fs::create_dir("processed").await.aquiesce();
+
     let earlier = instant::SystemTime::now();
 
     let (tx, mut rx) = mpsc::channel(80);
@@ -282,6 +286,9 @@ fn set_image(data: JsValue) -> Result<(), Error> {
 
 async fn setup_editor_from_data(contents: Data) -> Result<(), Error> {
     storage()?.set_item("data", &serde_json::to_string(&contents)?)?;
+
+    web_fs::create_dir("originals").await.aquiesce();
+    web_fs::create_dir("processed").await.aquiesce();
 
     view::roll::fill_fields(&contents.roll)
         .and(view::preview::create(contents.exposures.len() as u32))

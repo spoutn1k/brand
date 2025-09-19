@@ -178,16 +178,16 @@ async fn process_exposure(
     )
     .expect("Global error");
 
-    let jpeg = format!("{:0>2}.jpeg", metadata.index);
-    web_fs::write(jpeg.clone(), output).await?;
+    let jpeg = format!("processed/{:0>2}.jpeg", metadata.index);
+    web_fs::write(&jpeg, output).await?;
 
     let mut output = Vec::with_capacity(100 * 1024 * 1024); // Reserve 100MB for the output
 
     image_management::encode_tiff_with_exif(photo, Cursor::new(&mut output), data)
         .expect("Failed to encode TIFF with EXIF");
 
-    let tiff = format!("{:0>2}.tiff", metadata.index);
-    web_fs::write(tiff.clone(), output).await?;
+    let tiff = format!("processed/{:0>2}.tiff", metadata.index);
+    web_fs::write(&tiff, output).await?;
 
     Ok(WorkerProcessingAnswer(vec![jpeg.into(), tiff.into()]))
 }

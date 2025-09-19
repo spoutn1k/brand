@@ -65,14 +65,16 @@ pub async fn builder(
         }
         counter += file.len();
 
+        let filename = entry.file_name().expect("File with no file name");
+
         log::info!(
             "Adding file `{}` to archive ({} bytes, {}MB total)",
-            entry.to_string_lossy(),
+            filename.to_string_lossy(),
             file.len(),
             counter / (1024 * 1024)
         );
 
-        archive_builder.add_file(&file, folder_name.clone().join(entry))?;
+        archive_builder.add_file(&file, folder_name.clone().join(filename))?;
     }
 
     download_buffer(

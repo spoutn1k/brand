@@ -1,5 +1,7 @@
 use crate::{
-    Aquiesce, Error, JsError, JsResult, image_management,
+    Aquiesce, Error, JsError, JsResult,
+    helpers::window,
+    image_management,
     models::{ExposureData, FileMetadata, Orientation},
 };
 use base64::prelude::*;
@@ -43,7 +45,7 @@ pub struct Pool {
     done: Rc<RefCell<usize>>,
     rx: async_channel::Receiver<usize>,
     tx: async_channel::Sender<usize>,
-    callback: Rc<Box<dyn Fn(web_sys::MessageEvent)>>,
+    callback: Rc<dyn Fn(web_sys::MessageEvent)>,
 }
 
 impl Pool {
@@ -59,13 +61,10 @@ impl Pool {
             done: Rc::new(RefCell::new(0)),
             rx,
             tx,
-            callback: Rc::new(Box::new(callback)),
+            callback: Rc::new(callback),
         };
 
-        let concurrency = web_sys::window()
-            .ok_or(Error::NoWindow)?
-            .navigator()
-            .hardware_concurrency() as usize;
+        let concurrency = window()?.navigator().hardware_concurrency() as usize;
 
         for _ in 1..concurrency {
             p.spawn_next()?;
@@ -75,7 +74,7 @@ impl Pool {
     }
 
     pub fn try_new(tasks: Vec<WorkerMessage>) -> Result<Self, Error> {
-        Self::try_new_with_callback(tasks, Box::new(|_| ()))
+        Self::try_new_with_callback(tasks, |_| ())
     }
 
     pub fn spawn(self, task: WorkerMessage) -> Result<(), Error> {
@@ -122,7 +121,7 @@ impl Pool {
         }
     }
 
-    pub async fn join(&self) -> Result<(), Error> {
+    pub async fn join(self) -> Result<(), Error> {
         loop {
             if self.rx.recv().await? == self.expected {
                 return Ok(());

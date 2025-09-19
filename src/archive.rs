@@ -1,5 +1,8 @@
 use crate::{Error, controller::get_tse, helpers::download_buffer};
-use async_channel::Receiver;
+use futures::{
+    StreamExt,
+    channel::{mpsc, oneshot},
+};
 use std::{
     io::{Cursor, Write},
     path::{Path, PathBuf},
@@ -36,14 +39,18 @@ impl<W: Write> AddFileExt for tar::Builder<W> {
     }
 }
 
-pub async fn builder(folder_name: PathBuf, receiver: Receiver<PathBuf>) -> Result<(), Error> {
+pub async fn builder(
+    folder_name: PathBuf,
+    mut receiver: mpsc::Receiver<PathBuf>,
+    ack: oneshot::Sender<()>,
+) -> Result<(), Error> {
     let mut archive_builder = create();
 
     archive_builder.add_file(get_tse()?.as_bytes(), folder_name.clone().join("index.tse"))?;
 
     let mut archive_num = 1;
     let mut counter: usize = 0;
-    while let Ok(entry) = receiver.recv().await {
+    while let Some(entry) = receiver.next().await {
         let file = web_fs::read(&entry).await?;
 
         if counter + file.len() > ARCHIVE_SIZE {
@@ -73,5 +80,8 @@ pub async fn builder(folder_name: PathBuf, receiver: Receiver<PathBuf>) -> Resul
         &format!("{}-{archive_num}.tar", folder_name.display()),
         "application/x-tar",
     )
-    .inspect(|_| log::info!("Async archive builder done. Goodbye."))
+    .inspect(|_| log::info!("Async archive builder done. Goodbye."))?;
+
+    ack.send(())
+        .map_err(|_| Error::MissingKey(String::from("Ack failed")))
 }

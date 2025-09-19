@@ -1,10 +1,13 @@
 use crate::{Aquiesce, Error, JsError, JsResult, QueryExt, helpers::window};
-use async_channel::{Receiver, Sender};
-use std::cell::RefCell;
+use futures::{
+    SinkExt, StreamExt,
+    channel::mpsc::{Sender, channel},
+};
+use std::cell::{OnceCell, RefCell};
 use wasm_bindgen::{JsCast, closure::Closure};
 
 thread_local! {
-static CHANNEL: (Sender<Progress>, Receiver<Progress>) = async_channel::bounded(80);
+static CHANNEL: OnceCell<Sender<Progress>> = OnceCell::new();
 
 static MANAGER: RefCell<Manager> = RefCell::new(Default::default());
 
@@ -145,17 +148,26 @@ pub enum Progress {
     ThumbnailDone,
 }
 
-pub fn notifier() -> Sender<Progress> {
-    CHANNEL.with(|t| t.0.clone())
-}
-
-pub fn sender() -> Receiver<Progress> {
-    CHANNEL.with(|t| t.1.clone())
-}
-
 pub async fn handle_progress() -> Result<(), Error> {
-    while let Ok(data) = sender().recv().await {
+    let (sender, mut receiver) = channel(80);
+
+    CHANNEL
+        .with(move |oc| oc.set(sender))
+        .map_err(|_| Error::MissingKey(String::from("Failed to set sender in thread storage")))?;
+
+    while let Some(data) = receiver.next().await {
         MANAGER.with_borrow_mut(|manager| manager.process(data))
+    }
+
+    Ok(())
+}
+
+pub async fn notify(update: Progress) -> Result<(), Error> {
+    if let Some(mut notifier) = CHANNEL.with(|t| t.get().cloned()) {
+        notifier
+            .send(update)
+            .await
+            .map_err(|_| Error::MissingKey(String::from("Failed to send update")))?;
     }
 
     Ok(())

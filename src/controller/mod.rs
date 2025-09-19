@@ -12,7 +12,7 @@ use std::{cell::RefCell, convert::TryInto, path::PathBuf};
 
 mod notifications;
 
-pub use notifications::{Progress, handle_progress, notifier};
+pub use notifications::{Progress, handle_progress, notify};
 
 thread_local! {
     static HISTORY: RefCell<History<Data>> = RefCell::new(Default::default());

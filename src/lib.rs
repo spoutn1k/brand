@@ -15,6 +15,10 @@ use crate::{
     worker::{WorkerCompressionAnswer, WorkerMessage, WorkerProcessingAnswer},
 };
 use controller::Update;
+use futures::{
+    SinkExt,
+    channel::{mpsc, oneshot},
+};
 use image::ImageFormat;
 use std::{
     io::Cursor,
@@ -40,7 +44,7 @@ static KEY_HANDLER: Closure<dyn Fn(KeyboardEvent)> = Closure::new(|e: KeyboardEv
 
 fn handle_finished_export(
     event: MessageEvent,
-    sender: async_channel::Sender<PathBuf>,
+    mut sender: futures::channel::mpsc::Sender<PathBuf>,
 ) -> Result<(), Error> {
     let result: WorkerProcessingAnswer = serde_wasm_bindgen::from_value(event.data())?;
 
@@ -49,8 +53,7 @@ fn handle_finished_export(
             sender.send(file).await.aquiesce();
         }
 
-        controller::notifier()
-            .send(controller::Progress::Processing(0))
+        controller::notify(controller::Progress::Processing(0))
             .await
             .aquiesce();
     });
@@ -72,10 +75,11 @@ async fn process_images() -> Result<(), Error> {
 
     let exposures = get_exposure_data()?;
 
-    let (sender, receiver) = async_channel::bounded(80);
+    let (sender, receiver) = mpsc::channel(80);
+    let (ack, ok) = oneshot::channel();
 
     wasm_bindgen_futures::spawn_local(async move {
-        archive::builder(folder_name.into(), receiver)
+        archive::builder(folder_name.into(), receiver, ack)
             .await
             .aquiesce();
     });
@@ -87,9 +91,7 @@ async fn process_images() -> Result<(), Error> {
         })
         .collect();
 
-    controller::notifier()
-        .send(controller::Progress::ProcessingStart(tasks.len() as u32))
-        .await?;
+    controller::notify(controller::Progress::ProcessingStart(tasks.len() as u32)).await?;
 
     let pool = worker::Pool::try_new_with_callback(tasks, move |event| {
         handle_finished_export(event, sender.clone()).aquiesce();
@@ -97,9 +99,10 @@ async fn process_images() -> Result<(), Error> {
 
     pool.join().await?;
 
-    controller::notifier()
-        .send(controller::Progress::ProcessingDone)
-        .await?;
+    ok.await
+        .map_err(|_| Error::MissingKey(String::from("Ok failed")))?;
+
+    controller::notify(controller::Progress::ProcessingDone).await?;
 
     Ok(())
 }
@@ -274,8 +277,7 @@ fn set_image(data: JsValue) -> Result<(), Error> {
         .set_attribute("src", &format!("data:image/jpeg;base64, {base64}"))?;
 
     wasm_bindgen_futures::spawn_local(async move {
-        controller::notifier()
-            .send(controller::Progress::ThumbnailGenerated(index))
+        controller::notify(controller::Progress::ThumbnailGenerated(index))
             .await
             .aquiesce();
     });
@@ -306,9 +308,7 @@ async fn generate_thumbnails() -> Result<(), Error> {
         .map(WorkerMessage::GenerateThumbnail)
         .collect();
 
-    controller::notifier()
-        .send(controller::Progress::ThumbnailStart(tasks.len() as u32))
-        .await?;
+    controller::notify(controller::Progress::ThumbnailStart(tasks.len() as u32)).await?;
 
     let pool = worker::Pool::try_new_with_callback(tasks, |e: MessageEvent| {
         set_image(e.data()).aquiesce();
@@ -316,9 +316,7 @@ async fn generate_thumbnails() -> Result<(), Error> {
 
     pool.join().await?;
 
-    controller::notifier()
-        .send(controller::Progress::ThumbnailDone)
-        .await?;
+    controller::notify(controller::Progress::ThumbnailDone).await?;
 
     Ok(())
 }

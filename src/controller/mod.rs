@@ -13,8 +13,8 @@ mod local_storage;
 mod notifications;
 
 pub use local_storage::{
-    clear as clear_local_storage, get_data, get_exposure_data, get_metadata, get_selection,
-    get_tse, set_data, set_metadata, set_selection,
+    clear as clear_local_storage, get_data, get_metadata, get_selection, get_tse, set_data,
+    set_metadata, set_selection,
 };
 pub use notifications::{Progress, handle_progress, notify};
 

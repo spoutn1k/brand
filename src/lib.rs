@@ -10,7 +10,6 @@ pub mod view;
 pub mod worker;
 
 use crate::{
-    controller::get_exposure_data,
     models::{Data, FileKind, FileMetadata, Orientation},
     worker::{WorkerCompressionAnswer, WorkerMessage, WorkerProcessingAnswer},
 };
@@ -64,7 +63,7 @@ async fn process_images() -> Result<(), Error> {
         "roll".to_string()
     });
 
-    let exposures = get_exposure_data()?;
+    let exposures = controller::get_data().map(Data::spread_shots)?;
 
     let (sender, receiver) = mpsc::channel(80);
     let (ack, ok) = oneshot::channel();
@@ -142,7 +141,7 @@ async fn setup_editor_from_files(files: &[FileSystemFileEntry]) -> Result<(), Er
                 PathBuf::from(f.name()),
                 FileMetadata {
                     name: f.name(),
-                    local_fs_path: None,
+                    local_fs_path: "".into(),
                     index: extract_index_from_filename(&f.name()).unwrap_or(0),
                     orientation: Orientation::Normal,
                     file_type: FileKind::from(PathBuf::from(f.name())),
@@ -172,8 +171,6 @@ async fn setup_editor_from_files(files: &[FileSystemFileEntry]) -> Result<(), Er
         metadata.push(m);
         images.push(i);
     }
-
-    controller::set_metadata(&metadata.iter().cloned().collect())?;
 
     view::preview::create(images.len() as u32)?;
 
@@ -208,7 +205,7 @@ async fn setup_editor_from_files(files: &[FileSystemFileEntry]) -> Result<(), Er
                 let path = PathBuf::from("originals").join(name);
 
                 wasm_bindgen_futures::spawn_local(async move {
-                    meta.local_fs_path = Some(path.clone());
+                    meta.local_fs_path = path.clone();
                     fs::write_to_fs(&path, r).await.aquiesce();
                     controller::update(Update::FileMetadata(file_id, meta.clone())).aquiesce();
                     tx.send(()).await.aquiesce();
@@ -255,8 +252,6 @@ fn set_image(data: JsValue) -> Result<(), Error> {
 }
 
 async fn setup_editor_from_data(contents: Data) -> Result<(), Error> {
-    // controller::set_data(&contents)?;
-
     web_fs::create_dir("originals").await.aquiesce();
     web_fs::create_dir("processed").await.aquiesce();
 

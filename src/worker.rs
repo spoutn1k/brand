@@ -148,14 +148,7 @@ async fn process_exposure(
     metadata: &FileMetadata,
     data: &ExposureData,
 ) -> Result<WorkerProcessingAnswer, Error> {
-    let photo_data = web_fs::read(
-        metadata
-            .local_fs_path
-            .clone()
-            .ok_or(Error::MissingKey("Missing local file".into()))?,
-    )
-    .await?;
-
+    let photo_data = web_fs::read(&metadata.local_fs_path).await?;
     let photo = image::ImageReader::new(Cursor::new(photo_data))
         .with_guessed_format()?
         .decode()?
@@ -187,12 +180,8 @@ async fn process_exposure(
 }
 
 pub async fn compress_image(meta: FileMetadata) -> Result<WorkerCompressionAnswer, Error> {
-    let file = meta.local_fs_path.ok_or(Error::MissingKey(format!(
-        "Missing local file for exposure {}",
-        meta.index
-    )))?;
-
-    let photo = ImageReader::new(Cursor::new(web_fs::read(file).await?))
+    let photo_data = web_fs::read(&meta.local_fs_path).await?;
+    let photo = ImageReader::new(Cursor::new(photo_data))
         .with_guessed_format()?
         .decode()?
         .resize(512, 512, FilterType::Nearest)

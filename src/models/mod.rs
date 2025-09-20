@@ -31,7 +31,7 @@ pub enum Orientation {
 #[derive(Default, Debug, Serialize, Deserialize, Clone)]
 pub struct FileMetadata {
     pub name: String,
-    pub local_fs_path: Option<PathBuf>,
+    pub local_fs_path: PathBuf,
     pub index: u32,
     pub orientation: Orientation,
     pub file_type: FileKind,

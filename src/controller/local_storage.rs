@@ -41,7 +41,3 @@ pub fn set_selection(selection: &Selection) -> Result<(), Error> {
 pub fn get_tse() -> Result<String, Error> {
     get_data().map(|d| TseFormat::as_tse(&d))
 }
-
-pub fn get_exposure_data() -> Result<Data, Error> {
-    get_data().map(Data::spread_shots)
-}

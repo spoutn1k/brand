@@ -19,8 +19,8 @@ pub enum Error {
     Image(#[from] image::ImageError),
     #[error(transparent)]
     ParseInt(#[from] std::num::ParseIntError),
-    #[error("Failed to parse TSE file: {0}")]
-    ParseTse(String),
+    #[error("Failed to parse TSE file: line {0}:\n{1}")]
+    ParseTse(u32, String),
     #[error(transparent)]
     Logging(#[from] log::SetLoggerError),
     #[error(transparent)]

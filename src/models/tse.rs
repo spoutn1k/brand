@@ -79,12 +79,12 @@ pub fn read_tse<R: std::io::BufRead>(buffer: R) -> Result<Data, Error> {
             let space = stripped.find(' ').unwrap();
             let (marker, value) = stripped.split_at(space);
 
-            match marker {
-                "Make" => roll.make = Some(value.trim().into()),
-                "Model" => roll.model = Some(value.trim().into()),
-                "Description" => roll.description = Some(value.trim().into()),
-                "Author" => roll.author = Some(value.trim().into()),
-                "ISO" => roll.iso = Some(value.trim().into()),
+            match marker.to_lowercase().as_str() {
+                "make" => roll.make = Some(value.trim().into()),
+                "model" => roll.model = Some(value.trim().into()),
+                "description" => roll.description = Some(value.trim().into()),
+                "author" => roll.author = Some(value.trim().into()),
+                "iso" => roll.iso = Some(value.trim().into()),
                 _ => (),
             }
 
@@ -95,8 +95,9 @@ pub fn read_tse<R: std::io::BufRead>(buffer: R) -> Result<Data, Error> {
             continue;
         }
 
-        let exposure =
-            exposure_tsv(&mut line.as_str()).map_err(|_| Error::ParseTse(line.to_string()))?;
+        let exposure = exposure_tsv
+            .parse(&line)
+            .map_err(|e| Error::ParseTse(index, e.to_string()))?;
         exposures.insert(index, exposure);
         index += 1;
     }

@@ -307,10 +307,8 @@ pub fn setup() -> JsResult {
 
     if let Ok(data) = controller::get_data() {
         wasm_bindgen_futures::spawn_local(async move {
-            setup_editor_from_data(data)
-                .await
-                .and(controller::update(Update::SelectionClear))
-                .aquiesce();
+            setup_editor_from_data(data).await.aquiesce();
+            controller::update(Update::SelectionClear).aquiesce();
         });
     }
 

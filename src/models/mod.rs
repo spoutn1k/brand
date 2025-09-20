@@ -19,7 +19,7 @@ pub static HTML_INPUT_TIMESTAMP_FORMAT: &str = "%Y-%m-%dT%H:%M:%S";
 pub static HTML_INPUT_TIMESTAMP_FORMAT_N: &str = "%Y-%m-%dT%H:%M";
 
 #[repr(u8)]
-#[derive(Default, Debug, Serialize, Deserialize, Clone)]
+#[derive(Default, Debug, Serialize, Deserialize, Clone, Copy)]
 pub enum Orientation {
     #[default]
     Normal = 0,
@@ -249,7 +249,7 @@ impl Add for Orientation {
 
 impl Orientation {
     pub fn rotate(&self, angle: Orientation) -> Self {
-        self.clone() + angle
+        *self + angle
     }
 }
 

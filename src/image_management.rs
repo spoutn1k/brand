@@ -1,7 +1,7 @@
 use crate::{
     Error,
     gps::{GpsRef, GpsTag},
-    models::ExposureData,
+    models::{ExposureData, Orientation},
 };
 use image::{DynamicImage, GrayImage, ImageEncoder, RgbImage, codecs::jpeg::JpegEncoder};
 use std::io::{Cursor, Seek, Write};
@@ -23,6 +23,21 @@ impl From<SupportedImage> for DynamicImage {
         match val {
             SupportedImage::RGB(image) => DynamicImage::ImageRgb8(image),
             SupportedImage::Gray(image) => DynamicImage::ImageLuma8(image),
+        }
+    }
+}
+
+pub trait RotateExt {
+    fn rotate(self, rotation: Orientation) -> Self;
+}
+
+impl RotateExt for DynamicImage {
+    fn rotate(self, rotation: Orientation) -> Self {
+        match rotation {
+            Orientation::Normal => self,
+            Orientation::Rotated90 => self.rotate90(),
+            Orientation::Rotated180 => self.rotate180(),
+            Orientation::Rotated270 => self.rotate270(),
         }
     }
 }

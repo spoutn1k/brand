@@ -126,9 +126,13 @@ pub mod preview {
     use crate::{
         Aquiesce, AsHtmlExt, Error, EventTargetExt, QueryExt, SetEventHandlerExt,
         controller::{self, Update},
-        models,
+        image_management::RotateExt,
+        models::{self, Orientation},
         view::update,
     };
+    use base64::{Engine, prelude::BASE64_STANDARD};
+    use image::{ImageReader, codecs::jpeg::JpegEncoder};
+    use std::io::Cursor;
     use wasm_bindgen::prelude::*;
     use web_sys::{Event, HtmlElement, MouseEvent};
 
@@ -210,6 +214,29 @@ pub mod preview {
             } else {
                 image.class_list().remove_1("selected")?;
             }
+        }
+
+        Ok(())
+    }
+
+    pub fn rotate_thumbnail(index: u32, rotation: Orientation) -> Result<(), Error> {
+        let image = format!("exposure-{index}-preview").query_id()?;
+        if let Some(base64) = image
+            .get_attribute("src")
+            .and_then(|attr| attr.split_whitespace().nth(1).map(|b| b.to_string()))
+        {
+            let data = BASE64_STANDARD.decode(base64)?;
+            let photo = ImageReader::new(Cursor::new(data))
+                .with_guessed_format()?
+                .decode()?
+                .rotate(rotation);
+
+            let mut thumbnail = vec![];
+            JpegEncoder::new(&mut thumbnail).encode_image(&photo)?;
+
+            let base64 = BASE64_STANDARD.encode(thumbnail);
+
+            image.set_attribute("src", &format!("data:image/jpeg;base64, {base64}"))?;
         }
 
         Ok(())

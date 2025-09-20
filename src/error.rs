@@ -57,6 +57,8 @@ pub enum Error {
     OsChannelSend,
     #[error(transparent)]
     OsChannelRecv(#[from] futures::channel::oneshot::Canceled),
+    #[error(transparent)]
+    Base64Decode(#[from] base64::DecodeError),
 }
 
 impl From<JsValue> for Error {
@@ -92,7 +94,7 @@ pub trait Aquiesce {
 impl<E: std::error::Error> Aquiesce for Result<(), E> {
     fn aquiesce(self) {
         if let Err(e) = self {
-            log::error!("Error: {}", e);
+            log::error!("Ignoring: {}", e);
         }
     }
 }

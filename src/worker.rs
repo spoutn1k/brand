@@ -1,8 +1,8 @@
 use crate::{
     Aquiesce, Error, JsError, JsResult,
     helpers::window,
-    image_management,
-    models::{ExposureData, FileMetadata, Orientation},
+    image_management::{self, RotateExt},
+    models::{ExposureData, FileMetadata},
 };
 use base64::prelude::*;
 use futures::{
@@ -158,14 +158,8 @@ async fn process_exposure(
 
     let photo = image::ImageReader::new(Cursor::new(photo_data))
         .with_guessed_format()?
-        .decode()?;
-
-    let photo = match metadata.orientation {
-        Orientation::Normal => photo,
-        Orientation::Rotated90 => photo.rotate90(),
-        Orientation::Rotated180 => photo.rotate180(),
-        Orientation::Rotated270 => photo.rotate270(),
-    };
+        .decode()?
+        .rotate(metadata.orientation);
 
     let mut output = Vec::with_capacity(2 * 1024 * 1024); // Reserve 2MB for the output
 
@@ -201,14 +195,8 @@ pub async fn compress_image(meta: FileMetadata) -> Result<WorkerCompressionAnswe
     let photo = ImageReader::new(Cursor::new(web_fs::read(file).await?))
         .with_guessed_format()?
         .decode()?
-        .resize(512, 512, FilterType::Nearest);
-
-    let photo = match meta.orientation {
-        Orientation::Normal => photo,
-        Orientation::Rotated90 => photo.rotate90(),
-        Orientation::Rotated180 => photo.rotate180(),
-        Orientation::Rotated270 => photo.rotate270(),
-    };
+        .resize(512, 512, FilterType::Nearest)
+        .rotate(meta.orientation);
 
     let mut thumbnail = vec![];
     JpegEncoder::new(&mut thumbnail).encode_image(&photo)?;

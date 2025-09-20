@@ -1,11 +1,10 @@
 use crate::{
-    Aquiesce, Error, Orientation, QueryExt,
+    Aquiesce, Error, Orientation,
     models::{
         Data, ExposureSpecificData, FileMetadata, HTML_INPUT_TIMESTAMP_FORMAT,
         HTML_INPUT_TIMESTAMP_FORMAT_N, History, RollData, Selection,
     },
-    view, worker,
-    worker::WorkerCompressionAnswer,
+    view,
 };
 use chrono::NaiveDateTime;
 use std::{cell::RefCell, convert::TryInto, path::PathBuf};
@@ -129,26 +128,6 @@ fn exposure_update_field(change: UIExposureUpdate) -> Result<(), Error> {
     Ok(())
 }
 
-async fn exposure_update_image(meta: FileMetadata) -> Result<(), Error> {
-    let WorkerCompressionAnswer(index, base64) = worker::compress_image(meta).await?;
-
-    format!("exposure-{index}-preview")
-        .query_id()?
-        .set_attribute("src", &format!("data:image/jpeg;base64, {base64}"))?;
-
-    Ok(())
-}
-
-fn roll_update(change: UIRollUpdate) -> Result<(), Error> {
-    let mut data = get_data()?;
-
-    data.roll.update(change.into());
-
-    set_data(&data)?;
-
-    Ok(())
-}
-
 pub fn generate_folder_name() -> Result<String, Error> {
     let data = get_data()?;
 
@@ -215,7 +194,7 @@ fn show_selection(selection: &Selection) -> Result<(), Error> {
 }
 
 fn manage_selection(operation: Update) -> Result<(), Error> {
-    let mut selection = get_selection()?;
+    let mut selection = get_selection().unwrap_or_default();
     let data = get_metadata()?;
     let all: Selection = data.into_values().map(|m| m.index).collect();
 
@@ -264,63 +243,54 @@ fn undo() -> Result<(), Error> {
     Ok(())
 }
 
-async fn rotate(update: Update) -> Result<(), Error> {
+fn rotate(update: Update) -> Result<(), Error> {
     let selection = get_selection()?;
-
-    for index in selection.items() {
-        match update {
-            Update::RotateLeft => rotate_id(index, Orientation::Rotated270).await?,
-            Update::RotateRight => rotate_id(index, Orientation::Rotated90).await?,
-            _ => unreachable!(),
-        }
-    }
-
-    Ok(())
-}
-
-async fn rotate_id(index: u32, orientation: Orientation) -> Result<(), Error> {
     let mut data = get_metadata()?;
 
-    let (p, m) = data
-        .iter()
-        .find(|(_, m)| m.index == index)
-        .ok_or(Error::MissingKey(format!("exposure {index}")))?;
+    let rotation = match update {
+        Update::RotateLeft => Orientation::Rotated270,
+        Update::RotateRight => Orientation::Rotated90,
+        _ => unreachable!(),
+    };
 
-    let mut meta = m.clone();
-    meta.orientation = meta.orientation.rotate(orientation);
-    data.insert(p.clone(), meta.clone());
+    for index in selection.items() {
+        let (p, m) = data
+            .iter()
+            .find(|(_, m)| m.index == index)
+            .ok_or(Error::MissingKey(format!("exposure {index}")))?;
 
-    set_metadata(&data)?;
+        let mut meta = m.clone();
+        meta.orientation = meta.orientation.rotate(rotation);
+        data.insert(p.clone(), meta.clone());
 
-    exposure_update_image(meta).await?;
+        view::preview::rotate_thumbnail(index, rotation).aquiesce();
+    }
 
-    Ok(())
+    set_metadata(&data)
 }
 
 pub fn update(event: Update) -> Result<(), Error> {
     match event {
-        Update::Roll(d) => roll_update(d),
+        Update::Roll(change) => {
+            let mut data = get_data()?;
+
+            data.roll.update(change.into());
+
+            set_data(&data)
+        }
         Update::Exposure(d) => exposure_update_field(d),
         Update::SelectExposure(_, _, _)
         | Update::SelectionClear
         | Update::SelectionAll
         | Update::SelectionInvert => manage_selection(event),
-        Update::FileMetadata(path, metadata) => {
-            let mut data = get_metadata()?;
+        Update::FileMetadata(path, data) => {
+            let mut metadata = get_metadata().unwrap_or_default();
 
-            data.insert(path, metadata);
+            metadata.insert(path, data);
 
-            set_metadata(&data)?;
-
-            Ok(())
+            set_metadata(&metadata)
         }
-        Update::RotateLeft | Update::RotateRight => {
-            wasm_bindgen_futures::spawn_local(async move {
-                rotate(event).await.aquiesce();
-            });
-
-            Ok(())
-        }
+        Update::RotateLeft | Update::RotateRight => rotate(event),
         Update::Undo => undo(),
     }
 }

@@ -11,7 +11,7 @@ pub mod worker;
 
 use crate::{
     controller::get_exposure_data,
-    models::{Data, FileKind, FileMetadata, Meta, Orientation},
+    models::{Data, FileKind, FileMetadata, Orientation},
     worker::{WorkerCompressionAnswer, WorkerMessage, WorkerProcessingAnswer},
 };
 use controller::Update;
@@ -19,18 +19,13 @@ use futures::{
     SinkExt, StreamExt,
     channel::{mpsc, oneshot},
 };
-use image::ImageFormat;
-use std::{
-    io::Cursor,
-    path::{Path, PathBuf},
-};
+use std::{collections::BTreeMap, io::Cursor, path::PathBuf};
 use wasm_bindgen::prelude::*;
 use web_sys::{Event, File as WebFile, FileSystemFileEntry, KeyEvent, KeyboardEvent, MessageEvent};
 
 pub use error::{Aquiesce, Error, JsError, JsResult};
 pub use helpers::{
     AsHtmlExt, EventTargetExt, QueryExt, SessionStorageExt, SetEventHandlerExt, body, document,
-    storage,
 };
 
 thread_local! {
@@ -62,11 +57,7 @@ fn handle_finished_export(
 }
 
 async fn process_images() -> Result<(), Error> {
-    let metadata: Meta = serde_json::from_str(
-        &storage()?
-            .get_item("metadata")?
-            .ok_or(Error::MissingKey("metadata".into()))?,
-    )?;
+    let metadata = controller::get_metadata()?;
 
     let folder_name = controller::generate_folder_name().unwrap_or_else(|e| {
         log::error!("Failed to generate folder name: {e:?}");
@@ -123,9 +114,7 @@ async fn import_tse(entry: &FileSystemFileEntry) -> Result<(), Error> {
             let raw = r.result()?.as_string().unwrap_or_default();
             let data = models::read_tse(Cursor::new(raw))?;
 
-            storage()?.set_item("data", &serde_json::to_string(&data).unwrap())?;
-
-            Ok(())
+            controller::set_data(&data).js_error()
         });
 
         reader.set_onloadend(Some(closure.as_ref().unchecked_ref()));
@@ -144,7 +133,7 @@ async fn import_tse(entry: &FileSystemFileEntry) -> Result<(), Error> {
 async fn setup_editor_from_files(files: &[FileSystemFileEntry]) -> Result<(), Error> {
     let (images, other): (Vec<_>, Vec<_>) = files
         .iter()
-        .partition(|f| matches!(FileKind::from(PathBuf::from(&f.name())), FileKind::Image(_)));
+        .partition(|f| matches!(FileKind::from(PathBuf::from(f.name())), FileKind::Image(_)));
 
     let metadata = images
         .iter()
@@ -156,21 +145,18 @@ async fn setup_editor_from_files(files: &[FileSystemFileEntry]) -> Result<(), Er
                     local_fs_path: None,
                     index: extract_index_from_filename(&f.name()).unwrap_or(0),
                     orientation: Orientation::Normal,
-                    file_type: Path::new(&f.name())
-                        .extension()
-                        .and_then(ImageFormat::from_extension)
-                        .map(|fmt| fmt.to_mime_type().to_string()),
+                    file_type: FileKind::from(PathBuf::from(f.name())),
                 },
             )
         })
         .collect::<Vec<(PathBuf, FileMetadata)>>();
 
-    let mut selected = std::collections::BTreeMap::new();
+    let mut selected = BTreeMap::new();
     for ((p, m), i) in metadata.into_iter().zip(images) {
         selected
             .entry(m.index)
             .and_modify(|((pi, mi), ii)| {
-                if m.file_type.as_ref().is_some_and(|t| t == "image/tiff") {
+                if m.file_type.is_tiff() {
                     *pi = p.clone();
                     *mi = m.clone();
                     *ii = i;
@@ -187,17 +173,11 @@ async fn setup_editor_from_files(files: &[FileSystemFileEntry]) -> Result<(), Er
         images.push(i);
     }
 
-    storage()?.set_item(
-        "metadata",
-        &serde_json::to_string(&metadata.iter().cloned().collect::<Meta>())?,
-    )?;
+    controller::set_metadata(&metadata.iter().cloned().collect())?;
 
     view::preview::create(images.len() as u32)?;
 
-    storage()?.set_item(
-        "data",
-        &serde_json::to_string(&Data::with_count(images.len() as u32))?,
-    )?;
+    controller::set_data(&Data::with_count(images.len() as u32))?;
 
     if let Some(file) = other
         .into_iter()
@@ -275,7 +255,7 @@ fn set_image(data: JsValue) -> Result<(), Error> {
 }
 
 async fn setup_editor_from_data(contents: Data) -> Result<(), Error> {
-    storage()?.set_item("data", &serde_json::to_string(&contents)?)?;
+    // controller::set_data(&contents)?;
 
     web_fs::create_dir("originals").await.aquiesce();
     web_fs::create_dir("processed").await.aquiesce();
@@ -289,7 +269,7 @@ async fn setup_editor_from_data(contents: Data) -> Result<(), Error> {
 }
 
 async fn generate_thumbnails() -> Result<(), Error> {
-    let data: Meta = serde_json::from_str(&storage()?.get_existing("metadata")?)?;
+    let data = controller::get_metadata()?;
     let mut tasks: Vec<_> = data.into_values().collect();
     tasks.sort_by(|a, b| b.index.cmp(&a.index));
 
@@ -325,8 +305,7 @@ pub fn setup() -> JsResult {
 
     wasm_bindgen_futures::spawn_local(async { view::landing::landing_stats().await.aquiesce() });
 
-    if let Some(data) = storage()?.get_item("data")? {
-        let data: Data = serde_json::from_str(&data).js_error()?;
+    if let Ok(data) = controller::get_data() {
         wasm_bindgen_futures::spawn_local(async move {
             setup_editor_from_data(data)
                 .await

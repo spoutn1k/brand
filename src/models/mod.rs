@@ -18,6 +18,80 @@ pub use tse::{TseFormat, read_tse};
 pub static HTML_INPUT_TIMESTAMP_FORMAT: &str = "%Y-%m-%dT%H:%M:%S";
 pub static HTML_INPUT_TIMESTAMP_FORMAT_N: &str = "%Y-%m-%dT%H:%M";
 
+#[repr(u8)]
+#[derive(Default, Debug, Serialize, Deserialize, Clone)]
+pub enum Orientation {
+    #[default]
+    Normal = 0,
+    Rotated90 = 1,
+    Rotated180 = 2,
+    Rotated270 = 3,
+}
+
+#[derive(Default, Debug, Serialize, Deserialize, Clone)]
+pub struct FileMetadata {
+    pub name: String,
+    pub local_fs_path: Option<PathBuf>,
+    pub index: u32,
+    pub orientation: Orientation,
+    pub file_type: FileKind,
+}
+
+#[derive(PartialEq, Eq, Default, Clone, Debug)]
+pub enum FileKind {
+    Image(ImageFormat),
+    Tse,
+    #[default]
+    Unknown,
+}
+
+impl FileKind {
+    pub fn is_tiff(&self) -> bool {
+        match self {
+            Self::Image(format) => *format == ImageFormat::Tiff,
+            _ => false,
+        }
+    }
+}
+
+pub type Meta = HashMap<PathBuf, FileMetadata>;
+
+impl Serialize for FileKind {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(match self {
+            FileKind::Image(format) => format.to_mime_type(),
+            FileKind::Tse => "tse",
+            FileKind::Unknown => "unknown",
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for FileKind {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+
+        if s == "tse" {
+            return Ok(FileKind::Tse);
+        }
+
+        if s == "unknown" {
+            return Ok(FileKind::Unknown);
+        }
+
+        ImageFormat::from_mime_type(&s)
+            .map(FileKind::Image)
+            .ok_or(serde::de::Error::custom(format!(
+                "Unsupported image format: {s}"
+            )))
+    }
+}
+
 #[derive(Clone, Default, Debug, Deserialize, Serialize)]
 pub struct Data {
     pub roll: RollData,
@@ -159,16 +233,6 @@ impl ExposureSpecificData {
     }
 }
 
-#[repr(u8)]
-#[derive(Default, Debug, Serialize, Deserialize, Clone)]
-pub enum Orientation {
-    #[default]
-    Normal = 0,
-    Rotated90 = 1,
-    Rotated180 = 2,
-    Rotated270 = 3,
-}
-
 // Implement the `Add` trait for Orientation.
 impl Add for Orientation {
     type Output = Self;
@@ -189,23 +253,6 @@ impl Orientation {
     }
 }
 
-#[derive(Default, Debug, Serialize, Deserialize, Clone)]
-pub struct FileMetadata {
-    pub name: String,
-    pub local_fs_path: Option<PathBuf>,
-    pub index: u32,
-    pub orientation: Orientation,
-    pub file_type: Option<String>,
-}
-
-#[derive(PartialEq, Eq, Default)]
-pub enum FileKind {
-    Image(ImageFormat),
-    Tse,
-    #[default]
-    Unknown,
-}
-
 impl From<PathBuf> for FileKind {
     fn from(value: PathBuf) -> Self {
         value
@@ -220,5 +267,3 @@ impl From<PathBuf> for FileKind {
             .unwrap_or_default()
     }
 }
-
-pub type Meta = HashMap<PathBuf, FileMetadata>;

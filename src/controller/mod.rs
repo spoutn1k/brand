@@ -1,17 +1,22 @@
 use crate::{
-    Aquiesce, Error, Orientation, QueryExt, SessionStorageExt,
+    Aquiesce, Error, Orientation, QueryExt,
     models::{
         Data, ExposureSpecificData, FileMetadata, HTML_INPUT_TIMESTAMP_FORMAT,
-        HTML_INPUT_TIMESTAMP_FORMAT_N, History, Meta, RollData, Selection, TseFormat,
+        HTML_INPUT_TIMESTAMP_FORMAT_N, History, RollData, Selection,
     },
-    storage, view, worker,
+    view, worker,
     worker::WorkerCompressionAnswer,
 };
 use chrono::NaiveDateTime;
 use std::{cell::RefCell, convert::TryInto, path::PathBuf};
 
+mod local_storage;
 mod notifications;
 
+pub use local_storage::{
+    clear as clear_local_storage, get_data, get_exposure_data, get_metadata, get_selection,
+    get_tse, set_data, set_metadata, set_selection,
+};
 pub use notifications::{Progress, handle_progress, notify};
 
 thread_local! {
@@ -98,8 +103,7 @@ impl From<UIRollUpdate> for RollData {
 }
 
 fn exposure_update_field(change: UIExposureUpdate) -> Result<(), Error> {
-    let storage = storage()?;
-    let mut data: Data = serde_json::from_str(&storage.get_existing("data")?)?;
+    let mut data = get_data()?;
     let backup = data.clone();
 
     for target in get_selection()?.items() {
@@ -110,9 +114,9 @@ fn exposure_update_field(change: UIExposureUpdate) -> Result<(), Error> {
     }
 
     HISTORY.with_borrow_mut(|history| history.record(backup));
-    view::exposure::allow_undo(HISTORY.with_borrow(|h| h.undoable()))?;
+    view::exposure::allow_undo(true)?;
 
-    storage.set_item("data", &serde_json::to_string(&data)?)?;
+    set_data(&data)?;
 
     if let UIExposureUpdate::GpsMap(lat, lng) | UIExposureUpdate::Gps(lat, lng) = change {
         view::map::show_location(&[(lat, lng)]);
@@ -136,18 +140,17 @@ async fn exposure_update_image(meta: FileMetadata) -> Result<(), Error> {
 }
 
 fn roll_update(change: UIRollUpdate) -> Result<(), Error> {
-    let storage = storage()?;
-    let mut data: Data = serde_json::from_str(&storage.get_existing("data")?)?;
+    let mut data = get_data()?;
 
     data.roll.update(change.into());
 
-    storage.set_item("data", &serde_json::to_string(&data)?)?;
+    set_data(&data)?;
 
     Ok(())
 }
 
 pub fn generate_folder_name() -> Result<String, Error> {
-    let data: Data = serde_json::from_str(&storage()?.get_existing("data")?)?;
+    let data = get_data()?;
 
     let min = data
         .exposures
@@ -184,24 +187,8 @@ pub fn generate_folder_name() -> Result<String, Error> {
     Ok(folder_name)
 }
 
-pub fn get_selection() -> Result<Selection, Error> {
-    serde_json::from_str(&storage()?.get_item("selected")?.unwrap_or_default())
-        .or(Ok(Selection::default()))
-}
-
-pub fn get_exposure_data() -> Result<Data, Error> {
-    let storage = storage()?;
-    let data: Data = serde_json::from_str(&storage.get_existing("data")?)?;
-
-    Ok(data.spread_shots())
-}
-
 fn show_selection(selection: &Selection) -> Result<(), Error> {
-    let data: Data = storage()?
-        .get_item("data")?
-        .ok_or(Error::MissingKey("Data".into()))
-        .and_then(|s| serde_json::from_str(&s).map_err(Error::from))
-        .unwrap_or_default();
+    let data = get_data()?;
 
     match selection.items().len() {
         0 => view::roll::show().and(view::exposure::hide()),
@@ -228,9 +215,8 @@ fn show_selection(selection: &Selection) -> Result<(), Error> {
 }
 
 fn manage_selection(operation: Update) -> Result<(), Error> {
-    let storage = storage()?;
     let mut selection = get_selection()?;
-    let data: Meta = serde_json::from_str(&storage.get_existing("metadata")?)?;
+    let data = get_metadata()?;
     let all: Selection = data.into_values().map(|m| m.index).collect();
 
     let inverted: Selection = all
@@ -256,7 +242,7 @@ fn manage_selection(operation: Update) -> Result<(), Error> {
         _ => unreachable!(),
     }
 
-    storage.set_item("selected", &serde_json::to_string(&selection)?)?;
+    set_selection(&selection)?;
 
     show_selection(&selection)
         .and(view::preview::reflect_selection(&all, &selection))
@@ -266,11 +252,10 @@ fn manage_selection(operation: Update) -> Result<(), Error> {
 }
 
 fn undo() -> Result<(), Error> {
-    let storage = storage()?;
     let selection = get_selection()?;
 
     if let Some(data) = HISTORY.with_borrow_mut(|h| h.pop()) {
-        storage.set_item("data", &serde_json::to_string(&data)?)?
+        set_data(&data)?
     }
 
     show_selection(&selection).aquiesce();
@@ -294,8 +279,7 @@ async fn rotate(update: Update) -> Result<(), Error> {
 }
 
 async fn rotate_id(index: u32, orientation: Orientation) -> Result<(), Error> {
-    let storage = storage()?;
-    let mut data: Meta = serde_json::from_str(&storage.get_existing("metadata")?)?;
+    let mut data = get_metadata()?;
 
     let (p, m) = data
         .iter()
@@ -306,7 +290,7 @@ async fn rotate_id(index: u32, orientation: Orientation) -> Result<(), Error> {
     meta.orientation = meta.orientation.rotate(orientation);
     data.insert(p.clone(), meta.clone());
 
-    storage.set_item("metadata", &serde_json::to_string(&data)?)?;
+    set_metadata(&data)?;
 
     exposure_update_image(meta).await?;
 
@@ -322,12 +306,11 @@ pub fn update(event: Update) -> Result<(), Error> {
         | Update::SelectionAll
         | Update::SelectionInvert => manage_selection(event),
         Update::FileMetadata(path, metadata) => {
-            let storage = storage()?;
-            let mut data: Meta = serde_json::from_str(&storage.get_existing("metadata")?)?;
+            let mut data = get_metadata()?;
 
             data.insert(path, metadata);
 
-            storage.set_item("metadata", &serde_json::to_string(&data)?)?;
+            set_metadata(&data)?;
 
             Ok(())
         }
@@ -340,10 +323,4 @@ pub fn update(event: Update) -> Result<(), Error> {
         }
         Update::Undo => undo(),
     }
-}
-
-pub fn get_tse() -> Result<String, Error> {
-    let data: Data = serde_json::from_str(&storage()?.get_existing("data")?)?;
-
-    Ok(data.as_tse())
 }

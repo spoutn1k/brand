@@ -10,7 +10,7 @@ fn update(kind: Update) -> Closure<dyn Fn(Event)> {
 
 pub mod editor {
     use crate::{
-        Aquiesce, Error, QueryExt, fs, storage,
+        Aquiesce, Error, QueryExt, controller, fs,
         view::{landing, preview},
     };
 
@@ -33,7 +33,7 @@ pub mod editor {
             fs::clear_dir("").await.aquiesce();
         });
 
-        storage()?.clear()?;
+        controller::clear_local_storage()?;
 
         landing::show()?;
         hide()?;

@@ -13,7 +13,6 @@ pub mod editor {
         Aquiesce, Error, QueryExt, fs, storage,
         view::{landing, preview},
     };
-    use web_sys::HtmlInputElement;
 
     pub fn hide() -> Result<(), Error> {
         "editor".query_id()?.class_list().add_1("hidden")?;
@@ -28,11 +27,7 @@ pub mod editor {
     }
 
     pub fn reset() -> Result<(), Error> {
-        preview::reset()?;
-
-        "photoselect"
-            .query_id_into::<HtmlInputElement>()?
-            .set_value("");
+        preview::reset().and(landing::reset_file_input())?;
 
         wasm_bindgen_futures::spawn_local(async move {
             fs::clear_dir("").await.aquiesce();
@@ -93,7 +88,17 @@ pub mod landing {
         Ok(())
     }
 
+    pub fn reset_file_input() -> Result<(), Error> {
+        "photoselect"
+            .query_id_into::<HtmlInputElement>()?
+            .set_value("");
+
+        Ok(())
+    }
+
     pub fn setup() -> Result<(), Error> {
+        reset_file_input()?;
+
         "photoselect"
             .query_id()?
             .on("change", &DRAG_FILES)?

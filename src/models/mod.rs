@@ -3,6 +3,7 @@ use image::ImageFormat;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap},
+    ops::Add,
     path::PathBuf,
 };
 
@@ -14,7 +15,6 @@ pub use history::History;
 pub use selection::Selection;
 pub use tse::{TseFormat, read_tse};
 
-pub static MAX_EXPOSURES: u32 = 80;
 pub static HTML_INPUT_TIMESTAMP_FORMAT: &str = "%Y-%m-%dT%H:%M:%S";
 pub static HTML_INPUT_TIMESTAMP_FORMAT_N: &str = "%Y-%m-%dT%H:%M";
 
@@ -159,32 +159,33 @@ impl ExposureSpecificData {
     }
 }
 
+#[repr(u8)]
 #[derive(Default, Debug, Serialize, Deserialize, Clone)]
 pub enum Orientation {
     #[default]
-    Normal,
-    Rotated90,
-    Rotated180,
-    Rotated270,
+    Normal = 0,
+    Rotated90 = 1,
+    Rotated180 = 2,
+    Rotated270 = 3,
+}
+
+// Implement the `Add` trait for Orientation.
+impl Add for Orientation {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        // Cast enums to u8, add them, and wrap around using modulo 4.
+        let result = (self as u8 + rhs as u8) % 4;
+
+        // Safety: The result of `val % 4` is guaranteed to be 0, 1, 2, or 3,
+        // which are all valid discriminants for the `Orientation` enum.
+        unsafe { std::mem::transmute(result) }
+    }
 }
 
 impl Orientation {
     pub fn rotate(&self, angle: Orientation) -> Self {
-        match (self, angle) {
-            (Orientation::Normal, Orientation::Rotated90) => Orientation::Rotated90,
-            (Orientation::Normal, Orientation::Rotated180) => Orientation::Rotated180,
-            (Orientation::Normal, Orientation::Rotated270) => Orientation::Rotated270,
-            (Orientation::Rotated90, Orientation::Rotated90) => Orientation::Rotated180,
-            (Orientation::Rotated90, Orientation::Rotated180) => Orientation::Rotated270,
-            (Orientation::Rotated90, Orientation::Rotated270) => Orientation::Normal,
-            (Orientation::Rotated180, Orientation::Rotated90) => Orientation::Rotated270,
-            (Orientation::Rotated180, Orientation::Rotated180) => Orientation::Normal,
-            (Orientation::Rotated180, Orientation::Rotated270) => Orientation::Rotated90,
-            (Orientation::Rotated270, Orientation::Rotated90) => Orientation::Normal,
-            (Orientation::Rotated270, Orientation::Rotated180) => Orientation::Rotated90,
-            (Orientation::Rotated270, Orientation::Rotated270) => Orientation::Rotated180,
-            (o, Orientation::Normal) => o.clone(),
-        }
+        self.clone() + angle
     }
 }
 

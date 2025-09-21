@@ -76,7 +76,7 @@ async fn process_images() -> Result<(), Error> {
     });
 
     let tasks: Vec<_> = metadata
-        .into_values()
+        .into_iter()
         .map(|entry| {
             WorkerMessage::Process(entry.clone(), Box::new(exposures.generate(entry.index)))
         })
@@ -132,12 +132,12 @@ async fn import_tse(pipe: oneshot::Sender<Data>, entry: &FileSystemFileEntry) ->
 }
 
 async fn import_files(
-    metadata: Vec<(PathBuf, FileMetadata)>,
+    metadata: Vec<FileMetadata>,
     images: &[&FileSystemFileEntry],
 ) -> mpsc::Receiver<Result<(), Error>> {
     let (sender, rx) = mpsc::channel(80);
 
-    for ((path, mut meta), entry) in metadata.iter().cloned().zip(images) {
+    for (mut meta, entry) in metadata.iter().cloned().zip(images) {
         let name = entry.name();
 
         let mut tx = sender.clone();
@@ -155,7 +155,7 @@ async fn import_files(
                     let res = fs::write_to_fs(&local_path, r)
                         .await
                         .error()
-                        .and(controller::update(Update::FileMetadata(path, meta)).error());
+                        .and(controller::update(Update::FileMetadata(meta)).error());
                     tx.send(res).await.aquiesce()
                 })
             });
@@ -181,32 +181,26 @@ async fn setup_editor_from_files(files: &[FileSystemFileEntry]) -> Result<(), Er
 
     let metadata = images
         .iter()
-        .map(|f| {
-            (
-                PathBuf::from(f.name()),
-                FileMetadata {
-                    name: f.name(),
-                    local_fs_path: "".into(),
-                    index: extract_index_from_filename(&f.name()).unwrap_or(0),
-                    orientation: Orientation::Normal,
-                    file_type: FileKind::from(PathBuf::from(f.name())),
-                },
-            )
+        .map(|f| FileMetadata {
+            name: f.name(),
+            local_fs_path: "".into(),
+            index: extract_index_from_filename(&f.name()).unwrap_or(0),
+            orientation: Orientation::Normal,
+            file_type: FileKind::from(PathBuf::from(f.name())),
         })
-        .collect::<Vec<(PathBuf, FileMetadata)>>();
+        .collect::<Vec<FileMetadata>>();
 
     let mut selected = BTreeMap::new();
-    for ((p, m), i) in metadata.into_iter().zip(images) {
+    for (m, i) in metadata.into_iter().zip(images) {
         selected
             .entry(m.index)
-            .and_modify(|((pi, mi), ii)| {
+            .and_modify(|(mi, ii)| {
                 if m.file_type.is_tiff() {
-                    *pi = p.clone();
                     *mi = m.clone();
                     *ii = i;
                 }
             })
-            .or_insert(((p, m), i));
+            .or_insert((m, i));
     }
 
     let mut metadata = vec![];
@@ -281,8 +275,7 @@ async fn setup_editor_from_data(contents: Data) -> Result<(), Error> {
 }
 
 async fn generate_thumbnails() -> Result<(), Error> {
-    let data = controller::get_metadata()?;
-    let mut tasks: Vec<_> = data.into_values().collect();
+    let mut tasks = controller::get_metadata()?;
     tasks.sort_by(|a, b| b.index.cmp(&a.index));
 
     let tasks: Vec<_> = tasks

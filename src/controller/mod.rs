@@ -7,7 +7,7 @@ use crate::{
     view,
 };
 use chrono::NaiveDateTime;
-use std::{cell::RefCell, convert::TryInto, path::PathBuf};
+use std::{cell::RefCell, convert::TryInto};
 
 mod local_storage;
 mod notifications;
@@ -30,7 +30,7 @@ pub enum Update {
     SelectionInvert,
     Exposure(UIExposureUpdate),
     Roll(UIRollUpdate),
-    FileMetadata(PathBuf, FileMetadata),
+    FileMetadata(FileMetadata),
     RotateLeft,
     RotateRight,
     Undo,
@@ -196,7 +196,7 @@ fn show_selection(selection: &Selection) -> Result<(), Error> {
 fn manage_selection(operation: Update) -> Result<(), Error> {
     let mut selection = get_selection().unwrap_or_default();
     let data = get_metadata()?;
-    let all: Selection = data.into_values().map(|m| m.index).collect();
+    let all: Selection = data.into_iter().map(|m| m.index).collect();
 
     let inverted: Selection = all
         .items()
@@ -245,7 +245,7 @@ fn undo() -> Result<(), Error> {
 
 fn rotate(update: Update) -> Result<(), Error> {
     let selection = get_selection()?;
-    let mut data = get_metadata()?;
+    let mut metadata = get_metadata()?;
 
     let rotation = match update {
         Update::RotateLeft => Orientation::Rotated270,
@@ -254,19 +254,16 @@ fn rotate(update: Update) -> Result<(), Error> {
     };
 
     for index in selection.items() {
-        let (p, m) = data
-            .iter()
-            .find(|(_, m)| m.index == index)
+        metadata
+            .iter_mut()
+            .find(|m| m.index == index)
+            .map(|e| e.orientation = e.orientation.rotate(rotation))
             .ok_or(Error::MissingKey(format!("exposure {index}")))?;
-
-        let mut meta = m.clone();
-        meta.orientation = meta.orientation.rotate(rotation);
-        data.insert(p.clone(), meta.clone());
 
         view::preview::rotate_thumbnail(index, rotation).aquiesce();
     }
 
-    set_metadata(&data)
+    set_metadata(&metadata)
 }
 
 pub fn update(event: Update) -> Result<(), Error> {
@@ -283,10 +280,13 @@ pub fn update(event: Update) -> Result<(), Error> {
         | Update::SelectionClear
         | Update::SelectionAll
         | Update::SelectionInvert => manage_selection(event),
-        Update::FileMetadata(path, data) => {
+        Update::FileMetadata(data) => {
             let mut metadata = get_metadata().unwrap_or_default();
 
-            metadata.insert(path, data);
+            match metadata.iter_mut().find(|m| m.index == data.index) {
+                Some(entry) => *entry = data,
+                None => metadata.push(data),
+            }
 
             set_metadata(&metadata)
         }

@@ -2,7 +2,7 @@ use crate::{
     Error, SessionStorageExt,
     error::IntoError,
     helpers::storage,
-    models::{Data, Meta, Selection, TseFormat},
+    models::{Data, FileMetadata, Selection, TseFormat},
 };
 
 pub fn clear() -> Result<(), Error> {
@@ -19,13 +19,13 @@ pub fn set_data(data: &Data) -> Result<(), Error> {
         .error()
 }
 
-pub fn get_metadata() -> Result<Meta, Error> {
+pub fn get_metadata() -> Result<Vec<FileMetadata>, Error> {
     serde_json::from_str(&storage()?.get_existing("metadata")?).error()
 }
 
-pub fn set_metadata(metadata: &Meta) -> Result<(), Error> {
+pub fn set_metadata(metadata: &[FileMetadata]) -> Result<(), Error> {
     storage()?
-        .set_item("metadata", &serde_json::to_string(&metadata)?)
+        .set_item("metadata", &serde_json::to_string(metadata)?)
         .error()
 }
 

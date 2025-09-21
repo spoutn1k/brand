@@ -1,11 +1,7 @@
 use chrono::{DateTime, NaiveDateTime};
 use image::ImageFormat;
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::{BTreeMap, HashMap},
-    ops::Add,
-    path::PathBuf,
-};
+use std::{collections::BTreeMap, ops::Add, path::PathBuf};
 
 mod history;
 mod selection;
@@ -53,8 +49,6 @@ impl FileKind {
         }
     }
 }
-
-pub type Meta = HashMap<PathBuf, FileMetadata>;
 
 impl Serialize for FileKind {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

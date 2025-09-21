@@ -2,7 +2,7 @@ use crate::{
     Error, SessionStorageExt,
     error::IntoError,
     helpers::storage,
-    models::{Data, FileMetadata, Selection, TseFormat},
+    models::{Data, FileMetadata, Selection, TseFormat, ValidateMetadataExt},
 };
 
 pub fn clear() -> Result<(), Error> {
@@ -24,6 +24,8 @@ pub fn get_metadata() -> Result<Vec<FileMetadata>, Error> {
 }
 
 pub fn set_metadata(metadata: &[FileMetadata]) -> Result<(), Error> {
+    metadata.validate()?;
+
     storage()?
         .set_item("metadata", &serde_json::to_string(metadata)?)
         .error()

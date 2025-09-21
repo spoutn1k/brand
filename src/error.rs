@@ -59,6 +59,8 @@ pub enum Error {
     OsChannelRecv(#[from] futures::channel::oneshot::Canceled),
     #[error(transparent)]
     Base64Decode(#[from] base64::DecodeError),
+    #[error("Invalid file metadata generated")]
+    InvalidMetadata,
 }
 
 impl From<JsValue> for Error {

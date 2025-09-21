@@ -1,7 +1,12 @@
+use crate::Error;
 use chrono::{DateTime, NaiveDateTime};
 use image::ImageFormat;
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, ops::Add, path::PathBuf};
+use std::{
+    collections::{BTreeMap, HashSet},
+    ops::Add,
+    path::PathBuf,
+};
 
 mod history;
 mod selection;
@@ -47,6 +52,26 @@ impl FileKind {
             Self::Image(format) => *format == ImageFormat::Tiff,
             _ => false,
         }
+    }
+}
+
+pub trait ValidateMetadataExt {
+    fn validate(&self) -> Result<(), Error>;
+}
+
+impl ValidateMetadataExt for [FileMetadata] {
+    fn validate(&self) -> Result<(), Error> {
+        let mut paths = HashSet::new();
+        let mut indexes = HashSet::new();
+
+        for entry in self {
+            paths.insert(&entry.name);
+            indexes.insert(entry.index);
+        }
+
+        (paths.len() == indexes.len() && paths.len() == self.len())
+            .then_some(())
+            .ok_or(Error::InvalidMetadata)
     }
 }
 

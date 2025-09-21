@@ -1,5 +1,6 @@
 use crate::{
     Aquiesce, Error, JsError, JsResult,
+    error::IntoError,
     helpers::window,
     image_management::{self, RotateExt},
     models::{ExposureData, FileMetadata},
@@ -34,10 +35,10 @@ pub async fn handle_message(data: JsValue) -> JsResult<JsValue> {
     match message {
         WorkerMessage::Process(meta, dat) => process_exposure(&meta, &dat)
             .await
-            .and_then(|a| serde_wasm_bindgen::to_value(&a).map_err(|e| e.into())),
+            .and_then(|a| serde_wasm_bindgen::to_value(&a).error()),
         WorkerMessage::GenerateThumbnail(meta) => compress_image(meta)
             .await
-            .and_then(|a| serde_wasm_bindgen::to_value(&a).map_err(|e| e.into())),
+            .and_then(|a| serde_wasm_bindgen::to_value(&a).error()),
     }
     .js_error()
 }

@@ -10,6 +10,7 @@ pub mod view;
 pub mod worker;
 
 use crate::{
+    error::IntoError,
     models::{Data, FileKind, FileMetadata, Orientation},
     worker::{WorkerCompressionAnswer, WorkerMessage, WorkerProcessingAnswer},
 };
@@ -104,7 +105,7 @@ fn extract_index_from_filename(filename: &str) -> Option<u32> {
         .map(|i| i % 100)
 }
 
-async fn import_tse(entry: &FileSystemFileEntry) -> Result<(), Error> {
+async fn import_tse(pipe: oneshot::Sender<Data>, entry: &FileSystemFileEntry) -> Result<(), Error> {
     let file_load = Closure::once(move |file: WebFile| -> JsResult {
         let reader = web_sys::FileReader::new()?;
 
@@ -113,7 +114,8 @@ async fn import_tse(entry: &FileSystemFileEntry) -> Result<(), Error> {
             let raw = r.result()?.as_string().unwrap_or_default();
             let data = models::read_tse(Cursor::new(raw))?;
 
-            controller::set_data(&data).js_error()
+            controller::set_data(&data)?;
+            pipe.send(data).map_err(|_| Error::OsChannelSend).js_error()
         });
 
         reader.set_onloadend(Some(closure.as_ref().unchecked_ref()));
@@ -127,6 +129,49 @@ async fn import_tse(entry: &FileSystemFileEntry) -> Result<(), Error> {
     file_load.forget();
 
     Ok(())
+}
+
+async fn import_files(
+    metadata: Vec<(PathBuf, FileMetadata)>,
+    images: &[&FileSystemFileEntry],
+) -> mpsc::Receiver<Result<(), Error>> {
+    let (sender, rx) = mpsc::channel(80);
+
+    for ((path, mut meta), entry) in metadata.iter().cloned().zip(images) {
+        let name = entry.name();
+
+        let mut tx = sender.clone();
+
+        // We need to get the web_sys::File from the FileSystemFileEntry, so a closure is used, then we create a FileReader to read the file, and add a callback to handle the file once it's loaded. Finally, the file is written to the filesystem, in an async block.
+        let file_load = Closure::once(move |file: web_sys::File| -> JsResult {
+            let reader = web_sys::FileReader::new()?;
+
+            let r = reader.clone();
+            let closure = Closure::once(move |_: Event| {
+                wasm_bindgen_futures::spawn_local(async move {
+                    let local_path = PathBuf::from("originals").join(name);
+                    meta.local_fs_path = local_path.clone();
+
+                    let res = fs::write_to_fs(&local_path, r)
+                        .await
+                        .error()
+                        .and(controller::update(Update::FileMetadata(path, meta)).error());
+                    tx.send(res).await.aquiesce()
+                })
+            });
+            reader.set_onloadend(Some(closure.as_ref().unchecked_ref()));
+            closure.forget();
+
+            reader.read_as_array_buffer(&file)
+        });
+
+        entry.file_with_callback(file_load.as_ref().unchecked_ref());
+        file_load.forget();
+    }
+
+    drop(sender);
+
+    rx
 }
 
 async fn setup_editor_from_files(files: &[FileSystemFileEntry]) -> Result<(), Error> {
@@ -172,63 +217,36 @@ async fn setup_editor_from_files(files: &[FileSystemFileEntry]) -> Result<(), Er
         images.push(i);
     }
 
-    view::preview::create(images.len() as u32)?;
+    fs::setup().await?;
+    let mut handle = import_files(metadata, &images).await;
 
-    controller::set_data(&Data::with_count(images.len() as u32))?;
+    let data;
 
-    if let Some(file) = other
+    if let Some(tse) = other
         .into_iter()
         .find(|f| matches!(FileKind::from(PathBuf::from(&f.name())), FileKind::Tse))
         .cloned()
     {
-        import_tse(&file).await?
+        let (sender, receiver) = oneshot::channel();
+        import_tse(sender, &tse).await?;
+
+        data = receiver.await?;
+
+        // TODO Display error ? Await user input ?
+        assert!(data.exposures.len() == images.len())
+    } else {
+        data = Data::with_count(images.len() as u32)
     }
 
-    web_fs::create_dir("originals").await.aquiesce();
-    web_fs::create_dir("processed").await.aquiesce();
+    controller::set_data(&data)?;
 
-    let (tx, mut rx) = mpsc::channel(80);
-    for ((file_id, mut meta), entry) in metadata.iter().cloned().zip(images) {
-        let name = entry.name();
+    view::preview::create(images.len() as u32)
+        .and(view::landing::hide())
+        .and(view::editor::show())?;
 
-        let mut tx = tx.clone();
-
-        // We need to get the web_sys::File from the FileSystemFileEntry, so a closure is used,
-        // then we create a FileReader to read the file, and add a callback to handle the file once
-        // it's loaded. Finally, the file is written to the filesystem, in an async block.
-        let file_load = Closure::once(move |file: web_sys::File| -> JsResult {
-            let reader = web_sys::FileReader::new()?;
-
-            let r = reader.clone();
-
-            let closure = Closure::once(move |_: Event| {
-                let path = PathBuf::from("originals").join(name);
-
-                wasm_bindgen_futures::spawn_local(async move {
-                    meta.local_fs_path = path.clone();
-                    fs::write_to_fs(&path, r).await.aquiesce();
-                    controller::update(Update::FileMetadata(file_id, meta.clone())).aquiesce();
-                    tx.send(()).await.aquiesce();
-                });
-            });
-            reader.set_onloadend(Some(closure.as_ref().unchecked_ref()));
-            closure.forget();
-
-            reader.read_as_array_buffer(&file)?;
-
-            Ok(())
-        });
-
-        entry.file_with_callback(file_load.as_ref().unchecked_ref());
-        file_load.forget();
+    while let Some(import_status) = handle.next().await {
+        import_status?;
     }
-
-    drop(tx);
-
-    view::landing::hide().and(view::editor::show())?;
-
-    while rx.next().await.is_some() {}
-
     generate_thumbnails().await?;
 
     Ok(())
@@ -252,8 +270,7 @@ fn set_image(data: JsValue) -> Result<(), Error> {
 }
 
 async fn setup_editor_from_data(contents: Data) -> Result<(), Error> {
-    web_fs::create_dir("originals").await.aquiesce();
-    web_fs::create_dir("processed").await.aquiesce();
+    fs::setup().await?;
 
     view::roll::fill_fields(&contents.roll)
         .and(view::preview::create(contents.exposures.len() as u32))

@@ -98,3 +98,16 @@ impl<E: std::error::Error> Aquiesce for Result<(), E> {
         }
     }
 }
+
+pub trait IntoError<O, E> {
+    fn error(self) -> Result<O, E>;
+}
+
+impl<O, X> IntoError<O, Error> for Result<O, X>
+where
+    Error: From<X>,
+{
+    fn error(self) -> Result<O, Error> {
+        self.map_err(Error::from)
+    }
+}

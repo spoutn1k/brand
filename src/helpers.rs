@@ -1,4 +1,4 @@
-use crate::Error;
+use crate::{Error, error::IntoError};
 use js_sys::{Array, Uint8Array};
 use std::thread::LocalKey;
 use wasm_bindgen::{JsCast, JsValue};
@@ -129,7 +129,7 @@ where
                     .into()
                     .add_event_listener_with_callback(event_type, h.as_ref().unchecked_ref())
             })
-            .map_err(Error::from)??;
+            .error()??;
 
         Ok(self)
     }

@@ -1,14 +1,19 @@
-use crate::Aquiesce;
+use crate::{Aquiesce, Error, error::IntoError};
 use futures::StreamExt;
 use std::path::Path;
 use wasm_bindgen::prelude::wasm_bindgen;
 
+pub async fn setup() -> Result<(), Error> {
+    web_fs::create_dir("originals")
+        .await
+        .and(web_fs::create_dir("processed").await)
+        .error()
+}
+
 pub async fn write_to_fs(path: &Path, reader: web_sys::FileReader) -> Result<(), crate::Error> {
     let photo_data = js_sys::Uint8Array::new(&reader.result()?).to_vec();
 
-    web_fs::write(path, &photo_data).await?;
-
-    Ok(())
+    web_fs::write(path, &photo_data).await.error()
 }
 
 pub async fn clear_dir<P: AsRef<Path>>(path: P) -> Result<(), crate::Error> {

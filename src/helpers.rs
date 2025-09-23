@@ -43,6 +43,12 @@ pub trait QueryExt {
     fn query_selector(&self) -> Result<Element, Error> {
         Self::query_selector_into(self)
     }
+
+    fn query_selector_all_into<T: JsCast>(&self) -> Result<Vec<T>, Error>;
+
+    fn query_selector_all(&self) -> Result<Vec<Element>, Error> {
+        Self::query_selector_all_into(self)
+    }
 }
 
 impl<S> QueryExt for S
@@ -63,6 +69,19 @@ where
             .query_selector(self.as_ref())?
             .ok_or(Error::SelectorFailed(self.as_ref().to_string()))?
             .unchecked_into::<T>();
+
+        Ok(element)
+    }
+
+    fn query_selector_all_into<T: JsCast>(&self) -> Result<Vec<T>, Error> {
+        let element = document()?
+            .query_selector_all(self.as_ref())?
+            .values()
+            .into_iter()
+            .collect::<Result<Vec<JsValue>, JsValue>>()?
+            .into_iter()
+            .map(|e| e.unchecked_into::<T>())
+            .collect::<Vec<_>>();
 
         Ok(element)
     }

@@ -127,7 +127,7 @@ pub mod preview {
         Aquiesce, AsHtmlExt, Error, EventTargetExt, QueryExt, SetEventHandlerExt,
         controller::{self, Update},
         image_management::RotateExt,
-        models::{self, Orientation},
+        models::{self, FileMetadata, Orientation},
         view::update,
     };
     use base64::{Engine, prelude::BASE64_STANDARD};
@@ -165,19 +165,51 @@ pub mod preview {
         inner(event).aquiesce();
     }
 
-    pub fn create(count: u32) -> Result<(), Error> {
-        for index in 1..=count {
-            let image = "img".as_html()?;
-            image.set_id(&format!("exposure-{index}-preview"));
-            image.set_attribute("alt", &format!("E{}", index))?;
-            image.set_attribute("data-exposure-index", &index.to_string())?;
+    pub fn create(metadata: &Vec<FileMetadata>) -> Result<(), Error> {
+        let mut sorted = Vec::from_iter(metadata.iter());
+        sorted.sort_by(|a, b| a.index.cmp(&b.index));
 
-            image.on("click", &CLICK_EXPOSURE)?;
+        let images = sorted
+            .into_iter()
+            .map(|file| -> Result<_, Error> {
+                let image = "img".as_html()?;
+                image.set_id(&format!("exposure-preview"));
+                image.set_attribute("alt", &format!("E{}", file.index))?;
+                image.set_attribute("data-exposure-id", &file.name)?;
+                image.set_attribute("data-exposure-index", &file.index.to_string())?;
 
-            "preview-thumbnails"
-                .query_id()?
-                .append_with_node_1(&image)?;
-        }
+                image.on("click", &CLICK_EXPOSURE)?;
+
+                Ok(image)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        "preview-thumbnails"
+            .query_id()?
+            .replace_children_with_node(&js_sys::Array::from_iter(images));
+
+        reorder()
+    }
+
+    pub fn reorder() -> Result<(), Error> {
+        let mut images: Vec<_> = format!("#exposure-preview")
+            .query_selector_all()?
+            .into_iter()
+            .filter_map(|image| {
+                image
+                    .get_attribute("data-exposure-index")
+                    .and_then(|i| i.parse::<u32>().ok())
+                    .map(|index| (index, image))
+            })
+            .collect();
+
+        images.sort_by(|a, b| a.0.cmp(&b.0));
+
+        "preview-thumbnails"
+            .query_id()?
+            .replace_children_with_node(&js_sys::Array::from_iter(
+                images.into_iter().map(|(_, i)| i),
+            ));
 
         Ok(())
     }
@@ -207,7 +239,8 @@ pub mod preview {
         selection: &models::Selection,
     ) -> Result<(), Error> {
         for index in all.items() {
-            let image = format!("exposure-{index}-preview").query_id()?;
+            let image =
+                format!("#exposure-preview[data-exposure-index='{index}']").query_selector()?;
 
             if selection.contains(index) {
                 image.class_list().add_1("selected")?;
@@ -220,7 +253,8 @@ pub mod preview {
     }
 
     pub fn rotate_thumbnail(index: u32, rotation: Orientation) -> Result<(), Error> {
-        let image = format!("exposure-{index}-preview").query_id()?;
+        let image = format!("#exposure-preview[data-exposure-index='{index}']").query_selector()?;
+
         if let Some(base64) = image
             .get_attribute("src")
             .and_then(|attr| attr.split_whitespace().nth(1).map(|b| b.to_string()))

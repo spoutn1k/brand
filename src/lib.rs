@@ -234,13 +234,14 @@ async fn setup_editor_from_files(files: &[FileSystemFileEntry]) -> Result<(), Er
 
     controller::set_data(&data)?;
 
-    view::preview::create(images.len() as u32)
-        .and(view::landing::hide())
-        .and(view::editor::show())?;
-
     while let Some(import_status) = handle.next().await {
         import_status?;
     }
+
+    view::preview::create(&controller::get_metadata()?)
+        .and(view::landing::hide())
+        .and(view::editor::show())?;
+
     generate_thumbnails().await?;
 
     Ok(())
@@ -250,8 +251,8 @@ fn set_image(data: JsValue) -> Result<(), Error> {
     let WorkerCompressionAnswer(index, base64): WorkerCompressionAnswer =
         serde_wasm_bindgen::from_value(data)?;
 
-    format!("exposure-{index}-preview")
-        .query_id()?
+    format!("#exposure-preview[data-exposure-index='{index}']")
+        .query_selector()?
         .set_attribute("src", &format!("data:image/jpeg;base64, {base64}"))?;
 
     wasm_bindgen_futures::spawn_local(async move {
@@ -267,7 +268,7 @@ async fn setup_editor_from_data(contents: Data) -> Result<(), Error> {
     fs::setup().await?;
 
     view::roll::fill_fields(&contents.roll)
-        .and(view::preview::create(contents.exposures.len() as u32))
+        .and(view::preview::create(&controller::get_metadata()?))
         .and(view::landing::hide())
         .and(view::editor::show())?;
 

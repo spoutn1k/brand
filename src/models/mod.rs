@@ -1,115 +1,19 @@
-use crate::Error;
 use chrono::{DateTime, NaiveDateTime};
-use image::ImageFormat;
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::{BTreeMap, HashSet},
-    ops::Add,
-    path::PathBuf,
-};
+use std::collections::BTreeMap;
 
 mod history;
+mod metadata;
 mod selection;
 mod tse;
 
 pub use history::History;
+pub use metadata::{FileKind, FileMetadata, Orientation, ReorderMetadataExt, ValidateMetadataExt};
 pub use selection::Selection;
 pub use tse::{TseFormat, read_tse};
 
 pub static HTML_INPUT_TIMESTAMP_FORMAT: &str = "%Y-%m-%dT%H:%M:%S";
 pub static HTML_INPUT_TIMESTAMP_FORMAT_N: &str = "%Y-%m-%dT%H:%M";
-
-#[repr(u8)]
-#[derive(Default, Debug, Serialize, Deserialize, Clone, Copy)]
-pub enum Orientation {
-    #[default]
-    Normal = 0,
-    Rotated90 = 1,
-    Rotated180 = 2,
-    Rotated270 = 3,
-}
-
-#[derive(Default, Debug, Serialize, Deserialize, Clone)]
-pub struct FileMetadata {
-    pub name: String,
-    pub local_fs_path: PathBuf,
-    pub index: u32,
-    pub orientation: Orientation,
-    pub file_type: FileKind,
-}
-
-#[derive(PartialEq, Eq, Default, Clone, Debug)]
-pub enum FileKind {
-    Image(ImageFormat),
-    Tse,
-    #[default]
-    Unknown,
-}
-
-impl FileKind {
-    pub fn is_tiff(&self) -> bool {
-        match self {
-            Self::Image(format) => *format == ImageFormat::Tiff,
-            _ => false,
-        }
-    }
-}
-
-pub trait ValidateMetadataExt {
-    fn validate(&self) -> Result<(), Error>;
-}
-
-impl ValidateMetadataExt for [FileMetadata] {
-    fn validate(&self) -> Result<(), Error> {
-        let mut paths = HashSet::new();
-        let mut indexes = HashSet::new();
-
-        for entry in self {
-            paths.insert(&entry.name);
-            indexes.insert(entry.index);
-        }
-
-        (paths.len() == indexes.len() && paths.len() == self.len())
-            .then_some(())
-            .ok_or(Error::InvalidMetadata)
-    }
-}
-
-impl Serialize for FileKind {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(match self {
-            FileKind::Image(format) => format.to_mime_type(),
-            FileKind::Tse => "tse",
-            FileKind::Unknown => "unknown",
-        })
-    }
-}
-
-impl<'de> Deserialize<'de> for FileKind {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-
-        if s == "tse" {
-            return Ok(FileKind::Tse);
-        }
-
-        if s == "unknown" {
-            return Ok(FileKind::Unknown);
-        }
-
-        ImageFormat::from_mime_type(&s)
-            .map(FileKind::Image)
-            .ok_or(serde::de::Error::custom(format!(
-                "Unsupported image format: {s}"
-            )))
-    }
-}
 
 #[derive(Clone, Default, Debug, Deserialize, Serialize)]
 pub struct Data {
@@ -249,40 +153,5 @@ impl ExposureSpecificData {
         self.lens = change.lens.or(self.lens.to_owned());
         self.date = change.date.or(self.date.to_owned());
         self.gps = change.gps.or(self.gps.to_owned());
-    }
-}
-
-// Implement the `Add` trait for Orientation.
-impl Add for Orientation {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        // Cast enums to u8, add them, and wrap around using modulo 4.
-        let result = (self as u8 + rhs as u8) % 4;
-
-        // Safety: The result of `val % 4` is guaranteed to be 0, 1, 2, or 3,
-        // which are all valid discriminants for the `Orientation` enum.
-        unsafe { std::mem::transmute(result) }
-    }
-}
-
-impl Orientation {
-    pub fn rotate(&self, angle: Orientation) -> Self {
-        *self + angle
-    }
-}
-
-impl From<PathBuf> for FileKind {
-    fn from(value: PathBuf) -> Self {
-        value
-            .extension()
-            .and_then(|value| {
-                if value == "tse" {
-                    return Some(Self::Tse);
-                }
-
-                ImageFormat::from_extension(value).map(Self::Image)
-            })
-            .unwrap_or_default()
     }
 }

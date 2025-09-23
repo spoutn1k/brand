@@ -2,7 +2,7 @@ use crate::{
     Aquiesce, Error, Orientation,
     models::{
         Data, ExposureSpecificData, FileMetadata, HTML_INPUT_TIMESTAMP_FORMAT,
-        HTML_INPUT_TIMESTAMP_FORMAT_N, History, RollData, Selection,
+        HTML_INPUT_TIMESTAMP_FORMAT_N, History, ReorderMetadataExt, RollData, Selection,
     },
     view,
 };
@@ -264,6 +264,18 @@ fn rotate(update: Update) -> Result<(), Error> {
     }
 
     set_metadata(&metadata)
+}
+
+fn reorder(new: u32) -> Result<(), Error> {
+    let items = get_selection()?.items();
+    assert!(items.len() == 1);
+    let old = items.first().expect("Bad selection");
+
+    let metadata = get_metadata()?.reorder(*old, new);
+
+    set_metadata(&metadata)?;
+
+    Ok(())
 }
 
 pub fn update(event: Update) -> Result<(), Error> {

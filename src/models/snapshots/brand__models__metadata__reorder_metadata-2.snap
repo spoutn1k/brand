@@ -1,0 +1,39 @@
+---
+source: src/models/metadata.rs
+expression: "metadata.reorder(7,\n19).into_iter().map(|m|\nformat!(\"{} => {}\\n\", m.name, m.index)).collect::<String>()"
+---
+01.tiff => 1
+02.tiff => 2
+03.tiff => 3
+04.tiff => 4
+05.tiff => 5
+06.tiff => 6
+08.tiff => 7
+09.tiff => 8
+10.tiff => 9
+11.tiff => 10
+12.tiff => 11
+13.tiff => 12
+14.tiff => 13
+15.tiff => 14
+16.tiff => 15
+17.tiff => 16
+18.tiff => 17
+19.tiff => 18
+20.tiff => 20
+21.tiff => 21
+22.tiff => 22
+23.tiff => 23
+24.tiff => 24
+25.tiff => 25
+26.tiff => 26
+27.tiff => 27
+28.tiff => 28
+29.tiff => 29
+30.tiff => 30
+31.tiff => 31
+32.tiff => 32
+33.tiff => 33
+34.tiff => 34
+35.tiff => 35
+07.tiff => 19

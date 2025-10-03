@@ -93,10 +93,13 @@ pub trait Aquiesce {
     fn aquiesce(self);
 }
 
-impl<E: std::error::Error> Aquiesce for Result<(), E> {
+impl<E> Aquiesce for Result<(), E>
+where
+    E: Into<Error>,
+{
     fn aquiesce(self) {
         if let Err(e) = self {
-            log::error!("Ignoring: {}", e);
+            log::error!("Ignoring: {}", e.into());
         }
     }
 }

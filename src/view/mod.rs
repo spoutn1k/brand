@@ -126,6 +126,7 @@ pub mod preview {
     use crate::{
         Aquiesce, AsHtmlExt, Error, EventTargetExt, QueryExt, SetEventHandlerExt,
         controller::{self, Update},
+        error::IntoError,
         image_management::RotateExt,
         models::{self, FileMetadata, Orientation},
         view::update,
@@ -134,7 +135,7 @@ pub mod preview {
     use image::{ImageReader, codecs::jpeg::JpegEncoder};
     use std::io::Cursor;
     use wasm_bindgen::prelude::*;
-    use web_sys::{Event, HtmlElement, MouseEvent};
+    use web_sys::{Event, HtmlElement, HtmlImageElement, MouseEvent};
 
     thread_local! {
     static CLICK_EXPOSURE: Closure<dyn Fn(MouseEvent)> = Closure::new(handle_exposure_click);
@@ -142,6 +143,15 @@ pub mod preview {
     static SELECTION_CLEAR: Closure<dyn Fn(Event)> = update(Update::SelectionClear);
     static SELECTION_ALL: Closure<dyn Fn(Event)> = update(Update::SelectionAll);
     static SELECTION_INVERT: Closure<dyn Fn(Event)> = update(Update::SelectionInvert);
+    static DRAGSTART: Closure<dyn Fn(Event)> = Closure::new(|_| log::info!("started dragging"));
+    static DRAGOVER: Closure<dyn Fn(Event)> = Closure::new(|e: Event| {
+        e.prevent_default();
+        log::info!("stopped dragging")
+    });
+    static DROP: Closure<dyn Fn(Event)> = Closure::new(|e: Event| {
+        e.prevent_default();
+        log::info!("dropped")
+    });
     }
 
     fn handle_exposure_click(event: MouseEvent) {
@@ -255,6 +265,10 @@ pub mod preview {
     pub fn rotate_thumbnail(index: u32, rotation: Orientation) -> Result<(), Error> {
         let image = format!("#exposure-preview[data-exposure-index='{index}']").query_selector()?;
 
+        rotate_img(&image, rotation)
+    }
+
+    pub fn rotate_img(image: &web_sys::Element, rotation: Orientation) -> Result<(), Error> {
         if let Some(base64) = image
             .get_attribute("src")
             .and_then(|attr| attr.split_whitespace().nth(1).map(|b| b.to_string()))
@@ -272,6 +286,49 @@ pub mod preview {
 
             image.set_attribute("src", &format!("data:image/jpeg;base64, {base64}"))?;
         }
+
+        Ok(())
+    }
+
+    fn rotate_contact_element(index: u32, rotation: Orientation) -> Result<(), Error> {
+        let image =
+            format!("#contact-sheet img[data-exposure-index='{index}']").query_selector()?;
+
+        rotate_img(&image, rotation)
+    }
+
+    pub fn contact_sheet() -> Result<(), Error> {
+        let preview = "preview-thumbnails"
+            .query_id()?
+            .clone_node_with_deep(true)?
+            .unchecked_into::<HtmlElement>();
+
+        js_sys::Array::from(&preview.children())
+            .into_iter()
+            .for_each(|node| {
+                node.unchecked_into::<HtmlElement>()
+                    .on("dragstart", &DRAGSTART)
+                    .and_then(|node| node.on("dragover", &DRAGOVER))
+                    .and_then(|node| node.on("drop", &DROP))
+                    .and_then(|node| node.set_attribute("dragable", "true").error())
+                    .aquiesce();
+            });
+
+        preview.set_id("contact-sheet");
+
+        "editor".query_id()?.append_child(&preview)?;
+
+        "#preview-thumbnails img[data-portrait]"
+            .query_selector_all_into::<HtmlImageElement>()?
+            .into_iter()
+            .for_each(|img| {
+                if let Some(index) = img
+                    .get_attribute("data-exposure-index")
+                    .and_then(|i| i.parse::<u32>().ok())
+                {
+                    rotate_contact_element(index, Orientation::Rotated90).aquiesce();
+                }
+            });
 
         Ok(())
     }

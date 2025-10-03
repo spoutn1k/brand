@@ -248,12 +248,15 @@ async fn setup_editor_from_files(files: &[FileSystemFileEntry]) -> Result<(), Er
 }
 
 fn set_image(data: JsValue) -> Result<(), Error> {
-    let WorkerCompressionAnswer(index, base64): WorkerCompressionAnswer =
+    let WorkerCompressionAnswer(index, portrait, base64): WorkerCompressionAnswer =
         serde_wasm_bindgen::from_value(data)?;
 
-    format!("#exposure-preview[data-exposure-index='{index}']")
-        .query_selector()?
-        .set_attribute("src", &format!("data:image/jpeg;base64, {base64}"))?;
+    let thumbnail = format!("#exposure-preview[data-exposure-index='{index}']").query_selector()?;
+
+    thumbnail.set_attribute("src", &format!("data:image/jpeg;base64, {base64}"))?;
+    if portrait {
+        thumbnail.set_attribute("data-portrait", "")?;
+    }
 
     wasm_bindgen_futures::spawn_local(async move {
         controller::notify(controller::Progress::ThumbnailGenerated(index))

@@ -23,7 +23,7 @@ pub enum WorkerMessage {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct WorkerCompressionAnswer(pub u32, pub String);
+pub struct WorkerCompressionAnswer(pub u32, pub bool, pub String);
 
 #[derive(Serialize, Deserialize)]
 pub struct WorkerProcessingAnswer(pub Vec<PathBuf>);
@@ -188,10 +188,12 @@ pub async fn compress_image(meta: FileMetadata) -> Result<WorkerCompressionAnswe
         .resize(512, 512, FilterType::Nearest)
         .rotate(meta.orientation);
 
+    let portrait = photo.height() > photo.width();
+
     let mut thumbnail = vec![];
     JpegEncoder::new(&mut thumbnail).encode_image(&photo)?;
 
     let base64 = BASE64_STANDARD.encode(thumbnail);
 
-    Ok(WorkerCompressionAnswer(meta.index, base64))
+    Ok(WorkerCompressionAnswer(meta.index, portrait, base64))
 }

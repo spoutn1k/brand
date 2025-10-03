@@ -304,7 +304,6 @@ pub mod exposure {
     thread_local! {
     static ROTATE_LEFT: Closure<dyn Fn(Event)> = update(Update::RotateLeft);
     static ROTATE_RIGHT: Closure<dyn Fn(Event)> = update(Update::RotateRight);
-    static UNDO: Closure<dyn Fn(Event)> = update(Update::Undo);
 
     static UPDATE_APERTURE: Closure<dyn Fn(Event)> = exposure(UIExposureUpdate::Aperture);
     static UPDATE_COMMENT: Closure<dyn Fn(Event)> = exposure(UIExposureUpdate::Comment);
@@ -344,7 +343,6 @@ pub mod exposure {
 
         "rotate-left".query_id()?.on("click", &ROTATE_LEFT)?;
         "rotate-right".query_id()?.on("click", &ROTATE_RIGHT)?;
-        "undo".query_id()?.on("click", &UNDO)?;
 
         map::setup().aquiesce();
 
@@ -531,6 +529,9 @@ pub mod roll {
     }
 
     thread_local! {
+    static UNDO: Closure<dyn Fn(Event)> = update(Update::Undo);
+    static REORDER: Closure<dyn Fn(Event)> = Closure::new(|_| view::preview::contact_sheet().aquiesce());
+
     static RESET_EDITOR: Closure<dyn Fn(Event)> =
         Closure::new(|_| view::editor::reset().aquiesce());
 
@@ -560,6 +561,8 @@ pub mod roll {
 
         "editor-reset".query_id()?.on("click", &RESET_EDITOR)?;
         "download".query_id()?.on("click", &EXPORT)?;
+        "undo".query_id()?.on("click", &UNDO)?;
+        "reorder".query_id()?.on("click", &REORDER)?;
 
         Ok(())
     }

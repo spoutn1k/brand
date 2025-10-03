@@ -516,10 +516,19 @@ pub mod roll {
         Aquiesce, Error, EventTargetExt, QueryExt, SetEventHandlerExt,
         controller::{self, UIRollUpdate, Update},
         models::RollData,
-        view,
+        view::{self, update},
     };
     use wasm_bindgen::prelude::*;
     use web_sys::{Event, HtmlInputElement};
+
+    fn roll(format: impl Fn(String) -> UIRollUpdate + 'static + Clone) -> Closure<dyn Fn(Event)> {
+        Closure::new(move |event: Event| {
+            event
+                .target_into::<HtmlInputElement>()
+                .and_then(|t| controller::update(Update::Roll(format.clone()(t.value()))))
+                .aquiesce()
+        })
+    }
 
     thread_local! {
     static RESET_EDITOR: Closure<dyn Fn(Event)> =
@@ -531,40 +540,11 @@ pub mod roll {
         });
     });
 
-    static UPDATE_AUTHOR: Closure<dyn Fn(Event)> = Closure::new(|event: Event| {
-        event
-            .target_into::<HtmlInputElement>()
-            .and_then(|t| controller::update(Update::Roll(UIRollUpdate::Author(t.value()))))
-            .aquiesce()
-    });
-
-    static UPDATE_MAKE: Closure<dyn Fn(Event)> = Closure::new(|event: Event| {
-        event
-            .target_into::<HtmlInputElement>()
-            .and_then(|t| controller::update(Update::Roll(UIRollUpdate::Make(t.value()))))
-            .aquiesce()
-    });
-
-    static UPDATE_MODEL: Closure<dyn Fn(Event)> = Closure::new(|event: Event| {
-        event
-            .target_into::<HtmlInputElement>()
-            .and_then(|t| controller::update(Update::Roll(UIRollUpdate::Model(t.value()))))
-            .aquiesce()
-    });
-
-    static UPDATE_ISO: Closure<dyn Fn(Event)> = Closure::new(|event: Event| {
-        event
-            .target_into::<HtmlInputElement>()
-            .and_then(|t| controller::update(Update::Roll(UIRollUpdate::Iso(t.value()))))
-            .aquiesce()
-    });
-
-    static UPDATE_DESCRIPTION: Closure<dyn Fn(Event)> = Closure::new(|event: Event| {
-        event
-            .target_into::<HtmlInputElement>()
-            .and_then(|t| controller::update(Update::Roll(UIRollUpdate::Film(t.value()))))
-            .aquiesce()
-    });
+    static UPDATE_AUTHOR: Closure<dyn Fn(Event)> = roll(UIRollUpdate::Author);
+    static UPDATE_MAKE: Closure<dyn Fn(Event)> = roll(UIRollUpdate::Make);
+    static UPDATE_MODEL: Closure<dyn Fn(Event)> = roll(UIRollUpdate::Model);
+    static UPDATE_ISO: Closure<dyn Fn(Event)> = roll(UIRollUpdate::Iso);
+    static UPDATE_DESCRIPTION: Closure<dyn Fn(Event)> = roll(UIRollUpdate::Film);
     }
 
     pub fn setup() -> Result<(), Error> {

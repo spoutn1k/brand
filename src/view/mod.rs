@@ -332,6 +332,16 @@ pub mod preview {
 
         Ok(())
     }
+
+    pub fn contact_sheet_close() -> Result<(), Error> {
+        "#editor>#contact-sheet"
+            .query_selector()
+            .map(|e| e.remove())
+    }
+
+    pub fn contact_sheet_open() -> Result<bool, Error> {
+        "#editor>#contact-sheet".query_selector().map(|_| true)
+    }
 }
 
 pub mod exposure {

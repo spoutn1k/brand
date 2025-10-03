@@ -29,12 +29,15 @@ pub use helpers::{
 };
 
 thread_local! {
-static KEY_HANDLER: Closure<dyn Fn(KeyboardEvent)> = Closure::new(|e: KeyboardEvent|{
-    if e.key_code() == KeyEvent::DOM_VK_ESCAPE {
-        controller::update(controller::Update::SelectionClear).aquiesce()
+static KEY_HANDLER: Closure<dyn Fn(KeyboardEvent)> = Closure::new(|e: KeyboardEvent| {
+    if view::preview::contact_sheet_open().unwrap_or_default() {
+        view::preview::contact_sheet_close().aquiesce();
+    } else {
+        if e.key_code() == KeyEvent::DOM_VK_ESCAPE {
+            controller::update(controller::Update::SelectionClear).aquiesce()
+        }
     }
 });
-
 }
 
 fn handle_finished_export(

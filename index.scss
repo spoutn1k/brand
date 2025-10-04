@@ -127,6 +127,7 @@ body {
     gap: .6rem;
     overflow: auto;
     padding: 3rem;
+    z-index: 1000;
 
     img {
       width: 100%;
@@ -167,7 +168,7 @@ body {
       }
 
       #exposures-gps-map {
-        height: 20rem;
+        height: 40rem;
       }
     }
 

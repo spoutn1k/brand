@@ -1,6 +1,6 @@
 ---
 source: src/models/tse.rs
-expression: read_tse(tse.as_bytes()).unwrap()
+expression: parsed
 ---
 Data {
     roll: RollData {
@@ -20,8 +20,276 @@ Data {
             "Kodak Portra",
         ),
     },
+    files: [
+        FileMetadata {
+            name: "1.null",
+            local_fs_path: "",
+            index: 1,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "2.null",
+            local_fs_path: "",
+            index: 2,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "3.null",
+            local_fs_path: "",
+            index: 3,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "4.null",
+            local_fs_path: "",
+            index: 4,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "5.null",
+            local_fs_path: "",
+            index: 5,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "6.null",
+            local_fs_path: "",
+            index: 6,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "7.null",
+            local_fs_path: "",
+            index: 7,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "8.null",
+            local_fs_path: "",
+            index: 8,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "9.null",
+            local_fs_path: "",
+            index: 9,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "10.null",
+            local_fs_path: "",
+            index: 10,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "11.null",
+            local_fs_path: "",
+            index: 11,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "12.null",
+            local_fs_path: "",
+            index: 12,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "13.null",
+            local_fs_path: "",
+            index: 13,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "14.null",
+            local_fs_path: "",
+            index: 14,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "15.null",
+            local_fs_path: "",
+            index: 15,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "16.null",
+            local_fs_path: "",
+            index: 16,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "17.null",
+            local_fs_path: "",
+            index: 17,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "18.null",
+            local_fs_path: "",
+            index: 18,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "19.null",
+            local_fs_path: "",
+            index: 19,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "20.null",
+            local_fs_path: "",
+            index: 20,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "21.null",
+            local_fs_path: "",
+            index: 21,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "22.null",
+            local_fs_path: "",
+            index: 22,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "23.null",
+            local_fs_path: "",
+            index: 23,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "24.null",
+            local_fs_path: "",
+            index: 24,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "25.null",
+            local_fs_path: "",
+            index: 25,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "26.null",
+            local_fs_path: "",
+            index: 26,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "27.null",
+            local_fs_path: "",
+            index: 27,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "28.null",
+            local_fs_path: "",
+            index: 28,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "29.null",
+            local_fs_path: "",
+            index: 29,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "30.null",
+            local_fs_path: "",
+            index: 30,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "31.null",
+            local_fs_path: "",
+            index: 31,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "32.null",
+            local_fs_path: "",
+            index: 32,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "33.null",
+            local_fs_path: "",
+            index: 33,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "34.null",
+            local_fs_path: "",
+            index: 34,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "35.null",
+            local_fs_path: "",
+            index: 35,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "36.null",
+            local_fs_path: "",
+            index: 36,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "37.null",
+            local_fs_path: "",
+            index: 37,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+        FileMetadata {
+            name: "38.null",
+            local_fs_path: "",
+            index: 38,
+            orientation: Normal,
+            file_type: Unknown,
+        },
+    ],
     exposures: {
-        1: ExposureSpecificData {
+        "1.null": ExposureSpecificData {
             sspeed: None,
             aperture: Some(
                 "2.8",
@@ -42,7 +310,197 @@ Data {
                 ),
             ),
         },
-        2: ExposureSpecificData {
+        "10.null": ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "85mm",
+            ),
+            comment: Some(
+                "Balade dans Paris",
+            ),
+            date: Some(
+                2025-04-10T14:00:00,
+            ),
+            gps: Some(
+                (
+                    48.85359036,
+                    2.34680414,
+                ),
+            ),
+        },
+        "11.null": ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "50mm",
+            ),
+            comment: Some(
+                "Tourisme",
+            ),
+            date: Some(
+                2025-04-15T16:00:00,
+            ),
+            gps: Some(
+                (
+                    48.86167979,
+                    2.29603529,
+                ),
+            ),
+        },
+        "12.null": ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "50mm",
+            ),
+            comment: Some(
+                "Tourisme",
+            ),
+            date: Some(
+                2025-04-15T16:00:00,
+            ),
+            gps: Some(
+                (
+                    48.86167979,
+                    2.29603529,
+                ),
+            ),
+        },
+        "13.null": ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "50mm",
+            ),
+            comment: Some(
+                "Tourisme",
+            ),
+            date: Some(
+                2025-04-15T16:00:00,
+            ),
+            gps: Some(
+                (
+                    48.86167979,
+                    2.29603529,
+                ),
+            ),
+        },
+        "14.null": ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "50mm",
+            ),
+            comment: Some(
+                "Tourisme",
+            ),
+            date: Some(
+                2025-04-15T16:00:00,
+            ),
+            gps: Some(
+                (
+                    48.86167979,
+                    2.29603529,
+                ),
+            ),
+        },
+        "15.null": ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "20mm",
+            ),
+            comment: Some(
+                "Ile de la cité",
+            ),
+            date: Some(
+                2025-04-17T18:00:00,
+            ),
+            gps: Some(
+                (
+                    48.85519988,
+                    2.34651446,
+                ),
+            ),
+        },
+        "16.null": ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "20mm",
+            ),
+            comment: Some(
+                "Ile de la cité",
+            ),
+            date: Some(
+                2025-04-17T18:00:00,
+            ),
+            gps: Some(
+                (
+                    48.85519988,
+                    2.34651446,
+                ),
+            ),
+        },
+        "17.null": ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "85mm",
+            ),
+            comment: Some(
+                "Balade",
+            ),
+            date: Some(
+                2025-04-18T17:00:00,
+            ),
+            gps: Some(
+                (
+                    48.87177211,
+                    2.36459255,
+                ),
+            ),
+        },
+        "18.null": ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "85mm",
+            ),
+            comment: Some(
+                "Balade",
+            ),
+            date: Some(
+                2025-04-18T17:00:00,
+            ),
+            gps: Some(
+                (
+                    48.87177211,
+                    2.36459255,
+                ),
+            ),
+        },
+        "19.null": ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "85mm",
+            ),
+            comment: Some(
+                "Balade",
+            ),
+            date: Some(
+                2025-04-18T17:00:00,
+            ),
+            gps: Some(
+                (
+                    48.87177211,
+                    2.36459255,
+                ),
+            ),
+        },
+        "2.null": ExposureSpecificData {
             sspeed: None,
             aperture: Some(
                 "1.8",
@@ -63,273 +521,7 @@ Data {
                 ),
             ),
         },
-        3: ExposureSpecificData {
-            sspeed: None,
-            aperture: None,
-            lens: Some(
-                "50mm",
-            ),
-            comment: Some(
-                "Balade dans Paris",
-            ),
-            date: Some(
-                2025-04-10T14:00:00,
-            ),
-            gps: Some(
-                (
-                    48.86351491,
-                    2.31966019,
-                ),
-            ),
-        },
-        4: ExposureSpecificData {
-            sspeed: None,
-            aperture: None,
-            lens: Some(
-                "50mm",
-            ),
-            comment: Some(
-                "Balade dans Paris",
-            ),
-            date: Some(
-                2025-04-10T14:00:00,
-            ),
-            gps: Some(
-                (
-                    48.84697524,
-                    2.33650446,
-                ),
-            ),
-        },
-        5: ExposureSpecificData {
-            sspeed: None,
-            aperture: None,
-            lens: Some(
-                "85mm",
-            ),
-            comment: Some(
-                "Balade dans Paris",
-            ),
-            date: Some(
-                2025-04-10T14:00:00,
-            ),
-            gps: Some(
-                (
-                    48.84697524,
-                    2.33650446,
-                ),
-            ),
-        },
-        6: ExposureSpecificData {
-            sspeed: None,
-            aperture: None,
-            lens: Some(
-                "85mm",
-            ),
-            comment: Some(
-                "Balade dans Paris",
-            ),
-            date: Some(
-                2025-04-10T14:00:00,
-            ),
-            gps: Some(
-                (
-                    48.84697524,
-                    2.33650446,
-                ),
-            ),
-        },
-        7: ExposureSpecificData {
-            sspeed: None,
-            aperture: None,
-            lens: Some(
-                "85mm",
-            ),
-            comment: Some(
-                "Balade dans Paris",
-            ),
-            date: Some(
-                2025-04-10T14:00:00,
-            ),
-            gps: Some(
-                (
-                    48.84697524,
-                    2.33650446,
-                ),
-            ),
-        },
-        8: ExposureSpecificData {
-            sspeed: None,
-            aperture: None,
-            lens: Some(
-                "85mm",
-            ),
-            comment: Some(
-                "Balade dans Paris",
-            ),
-            date: Some(
-                2025-04-10T14:00:00,
-            ),
-            gps: Some(
-                (
-                    48.8472506,
-                    2.34434724,
-                ),
-            ),
-        },
-        9: ExposureSpecificData {
-            sspeed: None,
-            aperture: None,
-            lens: Some(
-                "50mm",
-            ),
-            comment: Some(
-                "Balade dans Paris",
-            ),
-            date: Some(
-                2025-04-10T14:00:00,
-            ),
-            gps: Some(
-                (
-                    48.8472506,
-                    2.34434724,
-                ),
-            ),
-        },
-        10: ExposureSpecificData {
-            sspeed: None,
-            aperture: None,
-            lens: Some(
-                "85mm",
-            ),
-            comment: Some(
-                "Balade dans Paris",
-            ),
-            date: Some(
-                2025-04-10T14:00:00,
-            ),
-            gps: Some(
-                (
-                    48.85359036,
-                    2.34680414,
-                ),
-            ),
-        },
-        11: ExposureSpecificData {
-            sspeed: None,
-            aperture: None,
-            lens: Some(
-                "50mm",
-            ),
-            comment: Some(
-                "Tourisme",
-            ),
-            date: Some(
-                2025-04-15T16:00:00,
-            ),
-            gps: Some(
-                (
-                    48.86167979,
-                    2.29603529,
-                ),
-            ),
-        },
-        12: ExposureSpecificData {
-            sspeed: None,
-            aperture: None,
-            lens: Some(
-                "50mm",
-            ),
-            comment: Some(
-                "Tourisme",
-            ),
-            date: Some(
-                2025-04-15T16:00:00,
-            ),
-            gps: Some(
-                (
-                    48.86167979,
-                    2.29603529,
-                ),
-            ),
-        },
-        13: ExposureSpecificData {
-            sspeed: None,
-            aperture: None,
-            lens: Some(
-                "50mm",
-            ),
-            comment: Some(
-                "Tourisme",
-            ),
-            date: Some(
-                2025-04-15T16:00:00,
-            ),
-            gps: Some(
-                (
-                    48.86167979,
-                    2.29603529,
-                ),
-            ),
-        },
-        14: ExposureSpecificData {
-            sspeed: None,
-            aperture: None,
-            lens: Some(
-                "50mm",
-            ),
-            comment: Some(
-                "Tourisme",
-            ),
-            date: Some(
-                2025-04-15T16:00:00,
-            ),
-            gps: Some(
-                (
-                    48.86167979,
-                    2.29603529,
-                ),
-            ),
-        },
-        15: ExposureSpecificData {
-            sspeed: None,
-            aperture: None,
-            lens: Some(
-                "20mm",
-            ),
-            comment: Some(
-                "Ile de la cité",
-            ),
-            date: Some(
-                2025-04-17T18:00:00,
-            ),
-            gps: Some(
-                (
-                    48.85519988,
-                    2.34651446,
-                ),
-            ),
-        },
-        16: ExposureSpecificData {
-            sspeed: None,
-            aperture: None,
-            lens: Some(
-                "20mm",
-            ),
-            comment: Some(
-                "Ile de la cité",
-            ),
-            date: Some(
-                2025-04-17T18:00:00,
-            ),
-            gps: Some(
-                (
-                    48.85519988,
-                    2.34651446,
-                ),
-            ),
-        },
-        17: ExposureSpecificData {
+        "20.null": ExposureSpecificData {
             sspeed: None,
             aperture: None,
             lens: Some(
@@ -348,64 +540,7 @@ Data {
                 ),
             ),
         },
-        18: ExposureSpecificData {
-            sspeed: None,
-            aperture: None,
-            lens: Some(
-                "85mm",
-            ),
-            comment: Some(
-                "Balade",
-            ),
-            date: Some(
-                2025-04-18T17:00:00,
-            ),
-            gps: Some(
-                (
-                    48.87177211,
-                    2.36459255,
-                ),
-            ),
-        },
-        19: ExposureSpecificData {
-            sspeed: None,
-            aperture: None,
-            lens: Some(
-                "85mm",
-            ),
-            comment: Some(
-                "Balade",
-            ),
-            date: Some(
-                2025-04-18T17:00:00,
-            ),
-            gps: Some(
-                (
-                    48.87177211,
-                    2.36459255,
-                ),
-            ),
-        },
-        20: ExposureSpecificData {
-            sspeed: None,
-            aperture: None,
-            lens: Some(
-                "85mm",
-            ),
-            comment: Some(
-                "Balade",
-            ),
-            date: Some(
-                2025-04-18T17:00:00,
-            ),
-            gps: Some(
-                (
-                    48.87177211,
-                    2.36459255,
-                ),
-            ),
-        },
-        21: ExposureSpecificData {
+        "21.null": ExposureSpecificData {
             sspeed: None,
             aperture: None,
             lens: None,
@@ -422,7 +557,7 @@ Data {
                 ),
             ),
         },
-        22: ExposureSpecificData {
+        "22.null": ExposureSpecificData {
             sspeed: None,
             aperture: None,
             lens: Some(
@@ -441,7 +576,7 @@ Data {
                 ),
             ),
         },
-        23: ExposureSpecificData {
+        "23.null": ExposureSpecificData {
             sspeed: None,
             aperture: None,
             lens: Some(
@@ -460,7 +595,7 @@ Data {
                 ),
             ),
         },
-        24: ExposureSpecificData {
+        "24.null": ExposureSpecificData {
             sspeed: None,
             aperture: None,
             lens: Some(
@@ -479,7 +614,7 @@ Data {
                 ),
             ),
         },
-        25: ExposureSpecificData {
+        "25.null": ExposureSpecificData {
             sspeed: None,
             aperture: None,
             lens: Some(
@@ -498,7 +633,7 @@ Data {
                 ),
             ),
         },
-        26: ExposureSpecificData {
+        "26.null": ExposureSpecificData {
             sspeed: None,
             aperture: None,
             lens: Some(
@@ -517,7 +652,7 @@ Data {
                 ),
             ),
         },
-        27: ExposureSpecificData {
+        "27.null": ExposureSpecificData {
             sspeed: None,
             aperture: None,
             lens: Some(
@@ -536,7 +671,7 @@ Data {
                 ),
             ),
         },
-        28: ExposureSpecificData {
+        "28.null": ExposureSpecificData {
             sspeed: None,
             aperture: None,
             lens: Some(
@@ -555,7 +690,7 @@ Data {
                 ),
             ),
         },
-        29: ExposureSpecificData {
+        "29.null": ExposureSpecificData {
             sspeed: None,
             aperture: None,
             lens: Some(
@@ -574,7 +709,26 @@ Data {
                 ),
             ),
         },
-        30: ExposureSpecificData {
+        "3.null": ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "50mm",
+            ),
+            comment: Some(
+                "Balade dans Paris",
+            ),
+            date: Some(
+                2025-04-10T14:00:00,
+            ),
+            gps: Some(
+                (
+                    48.86351491,
+                    2.31966019,
+                ),
+            ),
+        },
+        "30.null": ExposureSpecificData {
             sspeed: None,
             aperture: None,
             lens: Some(
@@ -593,7 +747,7 @@ Data {
                 ),
             ),
         },
-        31: ExposureSpecificData {
+        "31.null": ExposureSpecificData {
             sspeed: None,
             aperture: None,
             lens: Some(
@@ -612,7 +766,7 @@ Data {
                 ),
             ),
         },
-        32: ExposureSpecificData {
+        "32.null": ExposureSpecificData {
             sspeed: None,
             aperture: None,
             lens: Some(
@@ -631,7 +785,7 @@ Data {
                 ),
             ),
         },
-        33: ExposureSpecificData {
+        "33.null": ExposureSpecificData {
             sspeed: None,
             aperture: None,
             lens: Some(
@@ -650,7 +804,7 @@ Data {
                 ),
             ),
         },
-        34: ExposureSpecificData {
+        "34.null": ExposureSpecificData {
             sspeed: None,
             aperture: None,
             lens: Some(
@@ -669,7 +823,7 @@ Data {
                 ),
             ),
         },
-        35: ExposureSpecificData {
+        "35.null": ExposureSpecificData {
             sspeed: None,
             aperture: None,
             lens: Some(
@@ -688,7 +842,7 @@ Data {
                 ),
             ),
         },
-        36: ExposureSpecificData {
+        "36.null": ExposureSpecificData {
             sspeed: None,
             aperture: None,
             lens: Some(
@@ -707,7 +861,7 @@ Data {
                 ),
             ),
         },
-        37: ExposureSpecificData {
+        "37.null": ExposureSpecificData {
             sspeed: None,
             aperture: None,
             lens: Some(
@@ -726,7 +880,7 @@ Data {
                 ),
             ),
         },
-        38: ExposureSpecificData {
+        "38.null": ExposureSpecificData {
             sspeed: None,
             aperture: None,
             lens: Some(
@@ -742,6 +896,120 @@ Data {
                 (
                     48.86817299,
                     2.36290812,
+                ),
+            ),
+        },
+        "4.null": ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "50mm",
+            ),
+            comment: Some(
+                "Balade dans Paris",
+            ),
+            date: Some(
+                2025-04-10T14:00:00,
+            ),
+            gps: Some(
+                (
+                    48.84697524,
+                    2.33650446,
+                ),
+            ),
+        },
+        "5.null": ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "85mm",
+            ),
+            comment: Some(
+                "Balade dans Paris",
+            ),
+            date: Some(
+                2025-04-10T14:00:00,
+            ),
+            gps: Some(
+                (
+                    48.84697524,
+                    2.33650446,
+                ),
+            ),
+        },
+        "6.null": ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "85mm",
+            ),
+            comment: Some(
+                "Balade dans Paris",
+            ),
+            date: Some(
+                2025-04-10T14:00:00,
+            ),
+            gps: Some(
+                (
+                    48.84697524,
+                    2.33650446,
+                ),
+            ),
+        },
+        "7.null": ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "85mm",
+            ),
+            comment: Some(
+                "Balade dans Paris",
+            ),
+            date: Some(
+                2025-04-10T14:00:00,
+            ),
+            gps: Some(
+                (
+                    48.84697524,
+                    2.33650446,
+                ),
+            ),
+        },
+        "8.null": ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "85mm",
+            ),
+            comment: Some(
+                "Balade dans Paris",
+            ),
+            date: Some(
+                2025-04-10T14:00:00,
+            ),
+            gps: Some(
+                (
+                    48.8472506,
+                    2.34434724,
+                ),
+            ),
+        },
+        "9.null": ExposureSpecificData {
+            sspeed: None,
+            aperture: None,
+            lens: Some(
+                "50mm",
+            ),
+            comment: Some(
+                "Balade dans Paris",
+            ),
+            date: Some(
+                2025-04-10T14:00:00,
+            ),
+            gps: Some(
+                (
+                    48.8472506,
+                    2.34434724,
                 ),
             ),
         },

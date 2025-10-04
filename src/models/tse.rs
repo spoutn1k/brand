@@ -65,12 +65,7 @@ fn exposure_tsv(input: &mut &str) -> ModalResult<ExposureSpecificData> {
     .parse_next(input)
 }
 
-pub fn read_tse<R: std::io::BufRead>(buffer: R) -> Result<Data, Error> {
-    let Data {
-        mut roll,
-        mut exposures,
-    } = Data::default();
-
+pub fn read_tse<R: std::io::BufRead>(mut data: Data, buffer: R) -> Result<Data, Error> {
     let mut reader = buffer.lines();
 
     let mut index = 1;
@@ -80,11 +75,11 @@ pub fn read_tse<R: std::io::BufRead>(buffer: R) -> Result<Data, Error> {
             let (marker, value) = stripped.split_at(space);
 
             match marker.to_lowercase().as_str() {
-                "make" => roll.make = Some(value.trim().into()),
-                "model" => roll.model = Some(value.trim().into()),
-                "description" => roll.description = Some(value.trim().into()),
-                "author" => roll.author = Some(value.trim().into()),
-                "iso" => roll.iso = Some(value.trim().into()),
+                "make" => data.roll.make = Some(value.trim().into()),
+                "model" => data.roll.model = Some(value.trim().into()),
+                "description" => data.roll.description = Some(value.trim().into()),
+                "author" => data.roll.author = Some(value.trim().into()),
+                "iso" => data.roll.iso = Some(value.trim().into()),
                 _ => (),
             }
 
@@ -98,11 +93,15 @@ pub fn read_tse<R: std::io::BufRead>(buffer: R) -> Result<Data, Error> {
         let exposure = exposure_tsv
             .parse(&line)
             .map_err(|e| Error::ParseTse(index, e.to_string()))?;
-        exposures.insert(index, exposure);
+
+        data.exposure_entry(index)?
+            .and_modify(|f| *f = exposure.clone())
+            .or_insert(exposure);
+
         index += 1;
     }
 
-    Ok(Data { roll, exposures })
+    Ok(data)
 }
 
 pub trait TseFormat {
@@ -154,12 +153,11 @@ impl TseFormat for RollData {
 
 impl TseFormat for Data {
     fn as_tse(&self) -> String {
-        let max: u32 = *self.exposures.keys().max().unwrap_or(&0u32) + 1;
+        let max: u32 = self.files.iter().map(|f| f.index).max().unwrap_or(0u32) + 1;
 
         (1..max)
             .map(|index| {
-                self.exposures
-                    .get(&index)
+                self.get_exposure(index)
                     .map(|exp| exp.as_tse())
                     .unwrap_or_default()
             })
@@ -219,7 +217,7 @@ fn test_read_tse() {
 #Model F3
 ; vim: set list number noexpandtab:
 "#;
-    let parsed = read_tse(tse.as_bytes()).unwrap();
+    let parsed = read_tse(Data::dummy_with_count(38), tse.as_bytes()).unwrap();
 
     insta::assert_debug_snapshot!(parsed);
     insta::assert_snapshot!(parsed.as_tse())

@@ -7,14 +7,13 @@ use crate::{
     view,
 };
 use chrono::NaiveDateTime;
-use std::{cell::RefCell, convert::TryInto};
+use std::{cell::RefCell, collections::BTreeMap, convert::TryInto};
 
-mod local_storage;
+pub mod local_storage;
 mod notifications;
 
 pub use local_storage::{
-    clear as clear_local_storage, get_data, get_metadata, get_selection, get_tse, set_data,
-    set_metadata, set_selection,
+    clear as clear_local_storage, get_data, get_selection, get_tse, set_selection,
 };
 pub use notifications::{Progress, handle_progress, notify};
 
@@ -107,8 +106,7 @@ fn exposure_update_field(change: UIExposureUpdate) -> Result<(), Error> {
     let backup = data.clone();
 
     for target in get_selection()?.items() {
-        data.exposures
-            .get_mut(&target)
+        data.get_mut_exposure(target)
             .ok_or(Error::MissingKey(format!("exposure {target}")))?
             .update(change.clone().try_into()?);
     }
@@ -116,7 +114,7 @@ fn exposure_update_field(change: UIExposureUpdate) -> Result<(), Error> {
     HISTORY.with_borrow_mut(|history| history.record(backup));
     view::exposure::allow_undo(true)?;
 
-    set_data(&data)?;
+    set_data(data.exposures)?;
 
     if let UIExposureUpdate::GpsMap(lat, lng) | UIExposureUpdate::Gps(lat, lng) = change {
         view::map::show_location(&[(lat, lng)]);
@@ -133,18 +131,18 @@ pub fn generate_folder_name() -> Result<String, Error> {
     let data = get_data()?;
 
     let min = data
-        .exposures
-        .keys()
-        .min()
-        .and_then(|&k| data.exposures.get(&k))
+        .files
+        .iter()
+        .min_by(|lhs, rhs| lhs.index.cmp(&rhs.index))
+        .and_then(|k| data.get_exposure(k.index))
         .and_then(|e| e.date)
         .map(|d| d.format("%Y%m").to_string());
 
     let max = data
-        .exposures
-        .keys()
-        .max()
-        .and_then(|&k| data.exposures.get(&k))
+        .files
+        .iter()
+        .max_by(|lhs, rhs| lhs.index.cmp(&rhs.index))
+        .and_then(|k| data.get_exposure(k.index))
         .and_then(|e| e.date)
         .map(|d| d.format("%Y%m").to_string());
 
@@ -174,18 +172,15 @@ fn show_selection(selection: &Selection) -> Result<(), Error> {
         0 => view::roll::show().and(view::exposure::hide()),
         1 => {
             let index = selection.items().last().cloned().unwrap_or_default();
-            view::exposure::one(
-                index,
-                &data.exposures.get(&index).cloned().unwrap_or_default(),
-            )
-            .and(view::roll::hide())
-            .and(view::exposure::show())
+            view::exposure::one(index, &data.get_exposure(index).unwrap_or_default())
+                .and(view::roll::hide())
+                .and(view::exposure::show())
         }
         _ => {
             let contents = selection
                 .items()
-                .iter()
-                .filter_map(|i| data.exposures.get(i).cloned())
+                .into_iter()
+                .filter_map(|i| data.get_exposure(i))
                 .collect::<Vec<_>>();
             view::exposure::multiple(selection, contents.as_slice())
                 .and(view::roll::hide())
@@ -196,7 +191,7 @@ fn show_selection(selection: &Selection) -> Result<(), Error> {
 
 fn manage_selection(operation: Update) -> Result<(), Error> {
     let mut selection = get_selection().unwrap_or_default();
-    let data = get_metadata()?;
+    let data = get_data()?.files;
     let all: Selection = data.into_iter().map(|m| m.index).collect();
 
     let inverted: Selection = all
@@ -235,7 +230,7 @@ fn undo() -> Result<(), Error> {
     let selection = get_selection()?;
 
     if let Some(data) = HISTORY.with_borrow_mut(|h| h.pop()) {
-        set_data(&data)?
+        local_storage::set_data(&data)?
     }
 
     show_selection(&selection).aquiesce();
@@ -246,7 +241,7 @@ fn undo() -> Result<(), Error> {
 
 fn rotate(update: Update) -> Result<(), Error> {
     let selection = get_selection()?;
-    let mut metadata = get_metadata()?;
+    let mut metadata = get_data()?.files;
 
     let rotation = match update {
         Update::RotateLeft => Orientation::Rotated270,
@@ -264,13 +259,13 @@ fn rotate(update: Update) -> Result<(), Error> {
         view::preview::rotate_thumbnail(index, rotation).aquiesce();
     }
 
-    set_metadata(&metadata)
+    set_metadata(metadata)
 }
 
 fn reorder(old: u32, new: u32) -> Result<(), Error> {
-    let metadata = get_metadata()?.reorder(old, new);
+    let metadata = get_data()?.files.reorder(old, new);
 
-    set_metadata(&metadata)?;
+    set_metadata(metadata)?;
 
     Ok(())
 }
@@ -282,7 +277,7 @@ pub fn update(event: Update) -> Result<(), Error> {
 
             data.roll.update(change.into());
 
-            set_data(&data)
+            local_storage::set_data(&data)
         }
         Update::Exposure(d) => exposure_update_field(d),
         Update::SelectExposure(_, _, _)
@@ -290,17 +285,45 @@ pub fn update(event: Update) -> Result<(), Error> {
         | Update::SelectionAll
         | Update::SelectionInvert => manage_selection(event),
         Update::FileMetadata(data) => {
-            let mut metadata = get_metadata().unwrap_or_default();
+            let mut metadata = get_data().unwrap_or_default().files;
 
             match metadata.iter_mut().find(|m| m.index == data.index) {
                 Some(entry) => *entry = data,
                 None => metadata.push(data),
             }
 
-            set_metadata(&metadata)
+            set_metadata(metadata)
         }
         Update::RotateLeft | Update::RotateRight => rotate(event),
         Update::Undo => undo(),
         Update::Reorder(old, new) => reorder(old, new),
     }
+}
+
+pub fn set_data(value: BTreeMap<String, ExposureSpecificData>) -> Result<(), Error> {
+    let mut db = local_storage::get_data()?;
+
+    db.exposures = value;
+
+    local_storage::set_data(&db)
+}
+
+pub fn set_roll(value: RollData) -> Result<(), Error> {
+    let mut db = local_storage::get_data()?;
+
+    db.roll = value;
+
+    local_storage::set_data(&db)
+}
+
+pub fn set_metadata(value: Vec<FileMetadata>) -> Result<(), Error> {
+    let mut db = local_storage::get_data()?;
+
+    db.files = value;
+
+    local_storage::set_data(&db)
+}
+
+pub fn get_metadata() -> Result<Vec<FileMetadata>, Error> {
+    local_storage::get_data().map(|d| d.files)
 }

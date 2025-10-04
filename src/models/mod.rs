@@ -1,3 +1,4 @@
+use crate::Error;
 use chrono::{DateTime, NaiveDateTime};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -18,23 +19,45 @@ pub static HTML_INPUT_TIMESTAMP_FORMAT_N: &str = "%Y-%m-%dT%H:%M";
 #[derive(Clone, Default, Debug, Deserialize, Serialize)]
 pub struct Data {
     pub roll: RollData,
-    pub exposures: BTreeMap<u32, ExposureSpecificData>,
+    pub files: Vec<FileMetadata>,
+    pub exposures: BTreeMap<String, ExposureSpecificData>,
 }
 
 impl Data {
-    pub fn with_count(count: u32) -> Self {
-        let exposures = (1..=count)
-            .map(|index| (index, ExposureSpecificData::default()))
-            .collect();
+    pub fn exposure_entry<'a>(
+        &'a mut self,
+        index: u32,
+    ) -> Result<std::collections::btree_map::Entry<'a, String, ExposureSpecificData>, Error> {
+        self.files
+            .iter()
+            .find(|f| f.index == index)
+            .ok_or(Error::MissingKey("No file present for index".into()))
+            .map(|f| self.exposures.entry(f.name.clone()))
+    }
 
-        Self {
-            exposures,
-            ..Default::default()
-        }
+    pub fn get_mut_exposure(&mut self, index: u32) -> Option<&mut ExposureSpecificData> {
+        self.files
+            .iter()
+            .find(|f| f.index == index)
+            .and_then(|f| self.exposures.get_mut(&f.name))
+    }
+
+    pub fn get_exposure(&self, index: u32) -> Option<ExposureSpecificData> {
+        self.files
+            .iter()
+            .find(|f| f.index == index)
+            .and_then(|f| self.exposures.get(&f.name))
+            .cloned()
     }
 
     pub fn generate(&self, index: u32) -> ExposureData {
-        let exposure = self.exposures.get(&index).cloned().unwrap_or_default();
+        let exposure = self
+            .files
+            .iter()
+            .find(|f| f.index == index)
+            .and_then(|m| self.exposures.get(&m.name))
+            .cloned()
+            .unwrap_or_default();
 
         ExposureData {
             author: self.roll.author.clone(),
@@ -52,7 +75,11 @@ impl Data {
     }
 
     pub fn spread_shots(self) -> Self {
-        let Data { roll, exposures } = self;
+        let Data {
+            roll,
+            exposures,
+            files,
+        } = self;
 
         let mut exposures: Vec<_> = exposures.into_iter().collect();
         exposures.sort_by(|lhs, rhs| lhs.0.cmp(&rhs.0));
@@ -77,7 +104,28 @@ impl Data {
             })
             .collect();
 
-        Data { roll, exposures }
+        Data {
+            roll,
+            exposures,
+            files,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn dummy_with_count(count: u32) -> Self {
+        let files = (1..=count)
+            .into_iter()
+            .map(|i| FileMetadata {
+                index: i,
+                name: format!("{i}.null"),
+                ..Default::default()
+            })
+            .collect::<Vec<_>>();
+
+        Self {
+            files,
+            ..Default::default()
+        }
     }
 }
 

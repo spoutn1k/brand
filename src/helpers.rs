@@ -21,10 +21,15 @@ pub fn storage() -> Result<Storage, Error> {
 }
 
 pub trait SessionStorageExt {
+    fn get(&self, key: &str) -> Result<Option<String>, Error>;
     fn get_existing(&self, key: &str) -> Result<String, Error>;
 }
 
 impl SessionStorageExt for web_sys::Storage {
+    fn get(&self, key: &str) -> Result<Option<String>, Error> {
+        Ok(self.get_item(key)?)
+    }
+
     fn get_existing(&self, key: &str) -> Result<String, Error> {
         self.get_item(key)?
             .ok_or_else(|| Error::MissingKey(key.to_string()))

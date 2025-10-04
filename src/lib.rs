@@ -108,17 +108,20 @@ fn extract_index_from_filename(filename: &str) -> Option<u32> {
         .map(|i| i % 100)
 }
 
-async fn import_tse(pipe: oneshot::Sender<Data>, entry: &FileSystemFileEntry) -> Result<(), Error> {
+fn import_tse(entry: &FileSystemFileEntry) -> Result<oneshot::Receiver<Data>, Error> {
+    let (sender, receiver) = oneshot::channel();
     let file_load = Closure::once(move |file: WebFile| -> JsResult {
         let reader = web_sys::FileReader::new()?;
 
         let r = reader.clone();
         let closure = Closure::once(move |_: Event| -> JsResult {
             let raw = r.result()?.as_string().unwrap_or_default();
-            let data = models::read_tse(Cursor::new(raw))?;
+            let data = models::read_tse(controller::get_data()?, Cursor::new(raw))?;
 
-            controller::set_data(&data)?;
-            pipe.send(data).map_err(|_| Error::OsChannelSend).js_error()
+            sender
+                .send(data)
+                .map_err(|_| Error::OsChannelSend)
+                .js_error()
         });
 
         reader.set_onloadend(Some(closure.as_ref().unchecked_ref()));
@@ -131,7 +134,7 @@ async fn import_tse(pipe: oneshot::Sender<Data>, entry: &FileSystemFileEntry) ->
     entry.file_with_callback(file_load.as_ref().unchecked_ref());
     file_load.forget();
 
-    Ok(())
+    Ok(receiver)
 }
 
 async fn import_files(
@@ -215,30 +218,26 @@ async fn setup_editor_from_files(files: &[FileSystemFileEntry]) -> Result<(), Er
     }
 
     fs::setup().await?;
+    controller::local_storage::set_data(&Default::default())?;
+
     let mut handle = import_files(metadata, &images).await;
 
-    let data;
+    while let Some(import_status) = handle.next().await {
+        import_status?;
+    }
 
     if let Some(tse) = other
         .into_iter()
         .find(|f| matches!(FileKind::from(PathBuf::from(&f.name())), FileKind::Tse))
         .cloned()
     {
-        let (sender, receiver) = oneshot::channel();
-        import_tse(sender, &tse).await?;
-
-        data = receiver.await?;
+        let data = import_tse(&tse)?.await?;
 
         // TODO Display error ? Await user input ?
-        assert!(data.exposures.len() == images.len())
-    } else {
-        data = Data::with_count(images.len() as u32)
-    }
+        assert!(data.exposures.len() == images.len());
 
-    controller::set_data(&data)?;
-
-    while let Some(import_status) = handle.next().await {
-        import_status?;
+        controller::set_roll(data.roll)?;
+        controller::set_data(data.exposures)?;
     }
 
     view::preview::create(&controller::get_metadata()?)

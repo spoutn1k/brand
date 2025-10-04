@@ -34,6 +34,7 @@ pub enum Update {
     RotateLeft,
     RotateRight,
     Undo,
+    Reorder(u32, u32),
 }
 
 #[derive(Debug, Clone)]
@@ -266,12 +267,8 @@ fn rotate(update: Update) -> Result<(), Error> {
     set_metadata(&metadata)
 }
 
-fn reorder(new: u32) -> Result<(), Error> {
-    let items = get_selection()?.items();
-    assert!(items.len() == 1);
-    let old = items.first().expect("Bad selection");
-
-    let metadata = get_metadata()?.reorder(*old, new);
+fn reorder(old: u32, new: u32) -> Result<(), Error> {
+    let metadata = get_metadata()?.reorder(old, new);
 
     set_metadata(&metadata)?;
 
@@ -304,5 +301,6 @@ pub fn update(event: Update) -> Result<(), Error> {
         }
         Update::RotateLeft | Update::RotateRight => rotate(event),
         Update::Undo => undo(),
+        Update::Reorder(old, new) => reorder(old, new),
     }
 }

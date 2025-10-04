@@ -133,7 +133,7 @@ pub mod preview {
     };
     use base64::{Engine, prelude::BASE64_STANDARD};
     use image::{ImageReader, codecs::jpeg::JpegEncoder};
-    use std::io::Cursor;
+    use std::{cell::RefCell, io::Cursor};
     use wasm_bindgen::prelude::*;
     use web_sys::{Event, HtmlElement, HtmlImageElement, MouseEvent};
 
@@ -143,15 +143,55 @@ pub mod preview {
     static SELECTION_CLEAR: Closure<dyn Fn(Event)> = update(Update::SelectionClear);
     static SELECTION_ALL: Closure<dyn Fn(Event)> = update(Update::SelectionAll);
     static SELECTION_INVERT: Closure<dyn Fn(Event)> = update(Update::SelectionInvert);
-    static DRAGSTART: Closure<dyn Fn(Event)> = Closure::new(|_| log::info!("started dragging"));
+    static DRAGSTART: Closure<dyn Fn(Event)> =
+        Closure::new(|e: Event| handle_dragstart(e).aquiesce());
     static DRAGOVER: Closure<dyn Fn(Event)> = Closure::new(|e: Event| {
         e.prevent_default();
-        log::info!("stopped dragging")
+        log::info!(
+            "Dragged over `{}`",
+            e.target_into::<HtmlElement>()
+                .and_then(|t| t
+                    .get_attribute("data-exposure-index")
+                    .ok_or(Error::MissingKey("index".into())))
+                .unwrap_or_default()
+        )
     });
-    static DROP: Closure<dyn Fn(Event)> = Closure::new(|e: Event| {
-        e.prevent_default();
-        log::info!("dropped")
-    });
+    static DROP: Closure<dyn Fn(Event)> =
+        Closure::new(|e: Event| handle_drop(e).aquiesce());
+
+    static DRAGGED: RefCell<u32> = RefCell::new(u32::MAX);
+    }
+
+    fn handle_dragstart(event: Event) -> Result<(), Error> {
+        let drag_target = event
+            .target_into::<HtmlElement>()
+            .and_then(|t| {
+                t.get_attribute("data-exposure-index")
+                    .ok_or(Error::MissingKey("index".into()))
+            })
+            .and_then(|i| i.parse::<u32>().error())?;
+
+        log::info!("Started dragging `{drag_target}`");
+        DRAGGED.set(drag_target);
+
+        Ok(())
+    }
+
+    fn handle_drop(event: Event) -> Result<(), Error> {
+        let drop_target = event
+            .target_into::<HtmlElement>()
+            .and_then(|t| {
+                t.get_attribute("data-exposure-index")
+                    .ok_or(Error::MissingKey("index".into()))
+            })
+            .and_then(|i| i.parse::<u32>().error())?;
+
+        let drag_target = DRAGGED.take();
+        log::info!("Dropped `{drag_target}` on `{drop_target}`");
+
+        controller::update(Update::Reorder(drag_target, drop_target)).and_then(|_| reorder())?;
+
+        Ok(())
     }
 
     fn handle_exposure_click(event: MouseEvent) {

@@ -32,10 +32,8 @@ thread_local! {
 static KEY_HANDLER: Closure<dyn Fn(KeyboardEvent)> = Closure::new(|e: KeyboardEvent| {
     if view::preview::contact_sheet_open().unwrap_or_default() {
         view::preview::contact_sheet_close().aquiesce();
-    } else {
-        if e.key_code() == KeyEvent::DOM_VK_ESCAPE {
-            controller::update(controller::Update::SelectionClear).aquiesce()
-        }
+    } else if e.key_code() == KeyEvent::DOM_VK_ESCAPE {
+        controller::update(controller::Update::SelectionClear).aquiesce()
     }
 });
 }
@@ -253,7 +251,7 @@ fn set_image(data: JsValue) -> Result<(), Error> {
     let WorkerCompressionAnswer(index, portrait, base64): WorkerCompressionAnswer =
         serde_wasm_bindgen::from_value(data)?;
 
-    let thumbnail = format!("#exposure-preview[data-exposure-index='{index}']").query_selector()?;
+    let thumbnail = format!(".exposure-preview[data-exposure-index='{index}']").query_selector()?;
 
     thumbnail.set_attribute("src", &format!("data:image/jpeg;base64, {base64}"))?;
     if portrait {

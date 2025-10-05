@@ -159,7 +159,7 @@ pub mod preview {
     static DROP: Closure<dyn Fn(Event)> =
         Closure::new(|e: Event| handle_drop(e).aquiesce());
 
-    static DRAGGED: RefCell<u32> = RefCell::new(u32::MAX);
+    static DRAGGED: RefCell<u32> = const { RefCell::new(u32::MAX) };
     }
 
     fn handle_dragstart(event: Event) -> Result<(), Error> {
@@ -215,7 +215,7 @@ pub mod preview {
         inner(event).aquiesce();
     }
 
-    pub fn create(metadata: &Vec<FileMetadata>) -> Result<(), Error> {
+    pub fn create(metadata: &[FileMetadata]) -> Result<(), Error> {
         let mut sorted = Vec::from_iter(metadata.iter());
         sorted.sort_by(|a, b| a.index.cmp(&b.index));
 
@@ -223,7 +223,7 @@ pub mod preview {
             .into_iter()
             .map(|file| -> Result<_, Error> {
                 let image = "img".as_html()?;
-                image.set_id(&format!("exposure-preview"));
+                image.set_class_name("exposure-preview");
                 image.set_attribute("alt", &format!("E{}", file.index))?;
                 image.set_attribute("data-exposure-id", &file.name)?;
                 image.set_attribute("data-exposure-index", &file.index.to_string())?;
@@ -242,7 +242,7 @@ pub mod preview {
     }
 
     pub fn reorder() -> Result<(), Error> {
-        let mut images: Vec<_> = format!("#exposure-preview")
+        let mut images: Vec<_> = ".exposure-preview"
             .query_selector_all()?
             .into_iter()
             .filter_map(|image| {
@@ -290,7 +290,7 @@ pub mod preview {
     ) -> Result<(), Error> {
         for index in all.items() {
             let image =
-                format!("#exposure-preview[data-exposure-index='{index}']").query_selector()?;
+                format!(".exposure-preview[data-exposure-index='{index}']").query_selector()?;
 
             if selection.contains(index) {
                 image.class_list().add_1("selected")?;
@@ -303,7 +303,7 @@ pub mod preview {
     }
 
     pub fn rotate_thumbnail(index: u32, rotation: Orientation) -> Result<(), Error> {
-        let image = format!("#exposure-preview[data-exposure-index='{index}']").query_selector()?;
+        let image = format!(".exposure-preview[data-exposure-index='{index}']").query_selector()?;
 
         rotate_img(&image, rotation)
     }

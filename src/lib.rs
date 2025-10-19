@@ -187,7 +187,7 @@ impl NamedFile for FileSystemFileEntry {
     }
 }
 
-impl NamedFile for std::path::Path {
+impl NamedFile for std::path::PathBuf {
     fn get_name(&self) -> String {
         self.file_name()
             .unwrap_or_default()
@@ -196,7 +196,9 @@ impl NamedFile for std::path::Path {
     }
 }
 
-fn analyze_files<T: NamedFile>(files: &[T]) -> Result<(Vec<(FileMetadata, &T)>, Vec<&T>), Error> {
+pub fn analyze_files<T: NamedFile>(
+    files: &[T],
+) -> Result<(Vec<(FileMetadata, &T)>, Vec<&T>), Error> {
     let (images, other): (Vec<_>, Vec<_>) = files.iter().partition(|f| {
         matches!(
             FileKind::from(PathBuf::from(f.get_name())),

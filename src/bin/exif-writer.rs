@@ -1,13 +1,12 @@
 use brand::{
-    Error,
+    Error, analyze_files,
     image_management::{encode_jpeg_with_exif, encode_tiff_with_exif},
-    models::{ExposureData, read_tse},
+    models::{Data, ExposureData, read_tse},
 };
 use clap::Parser;
 use image::ImageReader;
-use regex::Regex;
 use simple_logger::SimpleLogger;
-use std::{collections::HashMap, fs::File, path::PathBuf};
+use std::{fs::File, path::PathBuf};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -64,66 +63,24 @@ fn main() -> Result<(), Error> {
     let mut tse_file_path = args.dir.clone();
     tse_file_path.push("index.tse");
 
-    let exif_data = read_tse(std::fs::read_to_string(tse_file_path)?.as_bytes())?;
+    let exif_data = read_tse(
+        Data::default(),
+        std::fs::read_to_string(tse_file_path)?.as_bytes(),
+    )?;
 
-    let mut files = HashMap::<u32, Vec<PathBuf>>::new();
-    let re = Regex::new(r"([0-9]+)").unwrap();
-
-    let out = std::fs::read_dir(args.dir)?
+    let directory_contents = std::fs::read_dir(args.dir)?
         .map(|e| Ok(e?.path()))
         .collect::<Result<Vec<_>, std::io::Error>>()?;
-    out.into_iter()
-        .filter(|p| p.file_name().is_some())
-        .filter_map(|p: PathBuf| {
-            let name = p
-                .file_name()
-                .and_then(|s| s.to_str())
-                .map(String::from)
-                .unwrap();
-            match re.captures(&name) {
-                Some(value) => {
-                    let (index, _) = value.extract::<1>();
-                    Some((p, String::from(index)))
-                }
-                None => None,
-            }
-        })
-        .map(|(p, index_str)| {
-            let path = p;
-            str::parse::<u32>(&index_str).map(|i| match files.get_mut(&i) {
-                Some(container) => container.push(path),
-                None => {
-                    files.insert(i, vec![path]);
-                }
-            })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
 
-    for exposure_index in files.keys() {
-        if !exif_data.exposures.contains_key(exposure_index) {
-            log::error!("No exposure data found for exposure number {exposure_index}");
-        }
-    }
+    let (images, _) = analyze_files(&directory_contents)?;
 
-    for index in exif_data.exposures.keys() {
-        let targets = files.get(index);
-
-        if targets.is_none() {
-            log::error!("No files found for index {index}");
-            break;
+    for (meta, path) in images {
+        if exif_data.get_exposure(meta.index).is_none() {
+            log::error!("No exposure data found for exposure number {}", meta.index);
         }
 
-        let _errs = targets
-            .unwrap()
-            .iter()
-            .flat_map(|file: &PathBuf| {
-                vec![
-                    encode_jpeg(file, &exif_data.generate(*index)),
-                    encode_tiff(file, &exif_data.generate(*index)),
-                ]
-            })
-            .filter(|r| r.is_err())
-            .collect::<Vec<_>>();
+        encode_jpeg(path, &exif_data.generate(meta.index))?;
+        encode_tiff(path, &exif_data.generate(meta.index))?;
     }
 
     Ok(())

@@ -492,11 +492,7 @@ pub mod exposure {
                     .unwrap_or_default(),
             );
 
-        if let Some((lat, lon)) = contents.gps {
-            map::show_location(&[(lat, lon)]);
-        } else {
-            map::reset();
-        }
+        map::show_location(&contents.gps.map(|coords| vec![coords]).unwrap_or_default());
 
         Ok(())
     }
@@ -567,11 +563,7 @@ pub mod exposure {
             _ => gps_input.set_placeholder("multiple"),
         }
 
-        if !positions.is_empty() {
-            map::show_location(&contents.iter().filter_map(|c| c.gps).collect::<Vec<_>>());
-        } else {
-            map::reset();
-        }
+        map::show_location(&contents.iter().filter_map(|c| c.gps).collect::<Vec<_>>());
 
         Ok(())
     }

@@ -73,8 +73,10 @@ pub fn show_location(pos: &[(f64, f64)]) {
                 MARKERS.with(|oc| oc.get().map(|lg| lg.add_layer(&Marker::new(&location))));
             }
 
-            // Display the markers using the bounds
-            m.fly_to_bounds(&bounds);
+            if !pos.is_empty() {
+                // Display the markers using the bounds
+                m.fly_to_bounds(&bounds);
+            }
         }
     })
 }

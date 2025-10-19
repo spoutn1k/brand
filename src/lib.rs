@@ -19,7 +19,7 @@ use futures::{
     SinkExt, StreamExt,
     channel::{mpsc, oneshot},
 };
-use std::{collections::BTreeMap, io::Cursor, path::PathBuf};
+use std::{collections::BTreeMap, ffi::OsStr, io::Cursor, path::PathBuf};
 use wasm_bindgen::prelude::*;
 use web_sys::{Event, File as WebFile, FileSystemFileEntry, KeyEvent, KeyboardEvent, MessageEvent};
 
@@ -136,12 +136,11 @@ fn import_tse(entry: &FileSystemFileEntry) -> Result<oneshot::Receiver<Data>, Er
 }
 
 async fn import_files(
-    metadata: Vec<FileMetadata>,
-    images: &[&FileSystemFileEntry],
+    images: &[(FileMetadata, &FileSystemFileEntry)],
 ) -> mpsc::Receiver<Result<(), Error>> {
     let (sender, rx) = mpsc::channel(80);
 
-    for (mut meta, entry) in metadata.iter().cloned().zip(images) {
+    for (mut meta, entry) in images.iter().cloned() {
         let name = entry.name();
 
         let mut tx = sender.clone();
@@ -178,19 +177,41 @@ async fn import_files(
     rx
 }
 
-async fn setup_editor_from_files(files: &[FileSystemFileEntry]) -> Result<(), Error> {
-    let (images, other): (Vec<_>, Vec<_>) = files
-        .iter()
-        .partition(|f| matches!(FileKind::from(PathBuf::from(f.name())), FileKind::Image(_)));
+trait NamedFile {
+    fn get_name(&self) -> String;
+}
+
+impl NamedFile for FileSystemFileEntry {
+    fn get_name(&self) -> String {
+        self.name()
+    }
+}
+
+impl NamedFile for std::path::Path {
+    fn get_name(&self) -> String {
+        self.file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string()
+    }
+}
+
+fn analyze_files<T: NamedFile>(files: &[T]) -> Result<(Vec<(FileMetadata, &T)>, Vec<&T>), Error> {
+    let (images, other): (Vec<_>, Vec<_>) = files.iter().partition(|f| {
+        matches!(
+            FileKind::from(PathBuf::from(f.get_name())),
+            FileKind::Image(_)
+        )
+    });
 
     let metadata = images
         .iter()
         .map(|f| FileMetadata {
-            name: f.name(),
+            name: f.get_name(),
             local_fs_path: "".into(),
-            index: extract_index_from_filename(&f.name()).unwrap_or(0),
+            index: extract_index_from_filename(&f.get_name()).unwrap_or(0),
             orientation: Orientation::Normal,
-            file_type: FileKind::from(PathBuf::from(f.name())),
+            file_type: FileKind::from(PathBuf::from(f.get_name())),
         })
         .collect::<Vec<FileMetadata>>();
 
@@ -207,18 +228,18 @@ async fn setup_editor_from_files(files: &[FileSystemFileEntry]) -> Result<(), Er
             .or_insert((m, i));
     }
 
-    let mut metadata = vec![];
-    let mut images = vec![];
+    let to_process = selected.into_values().collect::<Vec<_>>();
 
-    for (_, (m, i)) in selected {
-        metadata.push(m);
-        images.push(i);
-    }
+    Ok((to_process, other))
+}
+
+async fn setup_editor_from_files(files: &[FileSystemFileEntry]) -> Result<(), Error> {
+    let (images, other) = analyze_files(files)?;
 
     fs::setup().await?;
     controller::local_storage::set_data(&Default::default())?;
 
-    let mut handle = import_files(metadata, &images).await;
+    let mut handle = import_files(&images).await;
 
     while let Some(import_status) = handle.next().await {
         import_status?;

@@ -7,7 +7,7 @@ use crate::{
     view,
 };
 use chrono::NaiveDateTime;
-use std::{cell::RefCell, collections::BTreeMap, convert::TryInto};
+use std::{cell::RefCell, collections::BTreeMap};
 
 pub mod local_storage;
 mod notifications;
@@ -104,11 +104,12 @@ impl From<UIRollUpdate> for RollData {
 fn exposure_update_field(change: UIExposureUpdate) -> Result<(), Error> {
     let mut data = get_data()?;
     let backup = data.clone();
+    let update = ExposureSpecificData::try_from(change.clone())?;
 
     for target in get_selection()?.items() {
-        data.get_mut_exposure(target)
-            .ok_or(Error::MissingKey(format!("exposure {target}")))?
-            .update(change.clone().try_into()?);
+        data.exposure_entry(target)?
+            .and_modify(|e| e.update(update.clone()))
+            .or_insert(update.clone());
     }
 
     HISTORY.with_borrow_mut(|history| history.record(backup));

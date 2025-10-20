@@ -19,7 +19,7 @@ use futures::{
     SinkExt, StreamExt,
     channel::{mpsc, oneshot},
 };
-use std::{collections::BTreeMap, ffi::OsStr, io::Cursor, path::PathBuf};
+use std::{collections::BTreeMap, io::Cursor, path::PathBuf};
 use wasm_bindgen::prelude::*;
 use web_sys::{Event, File as WebFile, FileSystemFileEntry, KeyEvent, KeyboardEvent, MessageEvent};
 
@@ -177,7 +177,7 @@ async fn import_files(
     rx
 }
 
-trait NamedFile {
+pub trait NamedFile {
     fn get_name(&self) -> String;
 }
 

@@ -31,7 +31,9 @@ impl Data {
         self.files
             .iter()
             .find(|f| f.index == index)
-            .ok_or(Error::MissingKey("No file present for index".into()))
+            .ok_or(Error::MissingKey(format!(
+                "No file present for index {index}"
+            )))
             .map(|f| self.exposures.entry(f.name.clone()))
     }
 

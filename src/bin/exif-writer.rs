@@ -63,16 +63,18 @@ fn main() -> Result<(), Error> {
     let mut tse_file_path = args.dir.clone();
     tse_file_path.push("index.tse");
 
-    let exif_data = read_tse(
-        Data::default(),
-        std::fs::read_to_string(tse_file_path)?.as_bytes(),
-    )?;
-
     let directory_contents = std::fs::read_dir(args.dir)?
         .map(|e| Ok(e?.path()))
         .collect::<Result<Vec<_>, std::io::Error>>()?;
 
     let (images, _) = analyze_files(&directory_contents)?;
+
+    let data = Data {
+        files: images.iter().map(|i| i.0.clone()).collect(),
+        ..Default::default()
+    };
+
+    let exif_data = read_tse(data, std::fs::read_to_string(tse_file_path)?.as_bytes())?;
 
     for (meta, path) in images {
         if exif_data.get_exposure(meta.index).is_none() {

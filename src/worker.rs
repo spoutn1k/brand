@@ -145,10 +145,7 @@ impl Execution {
     }
 }
 
-async fn process_exposure(
-    metadata: &FileMetadata,
-    data: &ExposureData,
-) -> Result<WorkerProcessingAnswer, Error> {
+async fn create_files(metadata: &FileMetadata, data: &ExposureData) -> Result<Vec<PathBuf>, Error> {
     let photo_data = web_fs::read(&metadata.local_fs_path).await?;
     let photo = image::ImageReader::new(Cursor::new(photo_data))
         .with_guessed_format()?
@@ -163,21 +160,33 @@ async fn process_exposure(
             .resize(2000, 2000, image::imageops::FilterType::Lanczos3),
         Cursor::new(&mut output),
         data,
-    )
-    .expect("Global error");
+    )?;
 
     let jpeg = format!("processed/{:0>2}.jpeg", metadata.index);
     web_fs::write(&jpeg, output).await?;
 
     let mut output = Vec::with_capacity(100 * 1024 * 1024); // Reserve 100MB for the output
 
-    image_management::encode_tiff_with_exif(photo, Cursor::new(&mut output), data)
-        .expect("Failed to encode TIFF with EXIF");
+    image_management::encode_tiff_with_exif(photo, Cursor::new(&mut output), data)?;
 
     let tiff = format!("processed/{:0>2}.tiff", metadata.index);
     web_fs::write(&tiff, output).await?;
 
-    Ok(WorkerProcessingAnswer(vec![jpeg.into(), tiff.into()]))
+    Result::<Vec<_>, Error>::Ok(vec![jpeg.into(), tiff.into()])
+}
+
+async fn process_exposure(
+    metadata: &FileMetadata,
+    data: &ExposureData,
+) -> Result<WorkerProcessingAnswer, Error> {
+    let files = create_files(metadata, data).await.inspect_err(|e| {
+        log::error!(
+            "While processing {}: {e}",
+            metadata.local_fs_path.to_string_lossy()
+        )
+    });
+
+    Ok(WorkerProcessingAnswer(files.unwrap_or_default()))
 }
 
 pub async fn compress_image(meta: FileMetadata) -> Result<WorkerCompressionAnswer, Error> {
